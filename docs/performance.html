@@ -113,12 +113,13 @@ Every combination a level places is a distinct shader and a distinct PSO. That i
 <tr><td><code>T_MobWaterSpectrum</code></td><td>1056&times;528</td><td>2.13 MB, ocean only</td></tr>
 <tr><td><code>T_MobWaterSpectrumNormal</code></td><td>1056&times;528</td><td>2.13 MB, ocean only</td></tr>
 <tr><td><code>SP_MobWater_Ocean</code></td><td>&mdash;</td><td>2.00 MB of query table, ocean only</td></tr>
+<tr><td><code>SP_MobWater_Harbour</code></td><td>272&sup2; &times;2</td><td>0.81 MB all told, and only if a second ocean asks for it</td></tr>
 </tbody>
 </table></div>
 
 <p><b>1.2 MB for a project of lakes and ponds</b>, nearly all of it the two render targets - and the field is a fixed cost whatever a level does, because its price is its resolution.</p>
 
-<p><b>7.5 MB once an ocean loads a sea state.</b> Two uncompressed atlases and the table the query reads, and only a body whose <b>Spectrum</b> is set brings them. Uncompressed is not a choice: every block format quantises three channels together, so a compressed displacement map moves a vertex to wherever the block's average said, and what that produces is a straight seam across the whole ocean. Resolution, frame count and tile size are all bake parameters at the top of <code>mob_water_spectrum.py</code>; halving the resolution is a quarter of the memory.</p>
+<p><b>7.5 MB once an ocean loads a sea state</b>, and 8.8 MB if a second ocean is on the shorter one. Two uncompressed atlases and the table the query reads, and only a body whose <b>Spectrum</b> is set brings them. Uncompressed is not a choice: every block format quantises three channels together, so a compressed displacement map moves a vertex to wherever the block's average said, and what that produces is a straight seam across the whole ocean. Resolution, frame count and tile size are all bake parameters at the top of <code>mob_water_spectrum.py</code>; halving the resolution is a quarter of the memory.</p>
 
 <div class="tip">
 <b>Ripple Extent</b> trades reach against fineness at no cost either way. Two thousand across 256 is about eight centimetres a texel; doubling the reach halves the detail and changes nothing about the bill.

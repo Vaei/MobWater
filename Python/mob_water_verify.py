@@ -512,6 +512,12 @@ def _check_one_spectrum(spectrum_path):
     if spectrum is None:
         return ['%s is missing. Run Water > Bake Ocean Spectrum.' % spectrum_path]
 
+    # After the load, not before it. Waiting once at the top of the run only waits for what had
+    # already been asked for by then, and an atlas loaded here is still being built when the probe
+    # samples it - which reads as black, and black is a perfectly good number that no probe can tell
+    # from a real one. It cost an evening on the second sea state, which loads later than the first.
+    unreal.MobWaterEditorLibrary.finish_asset_compilation()
+
     if spectrum.get_table_bytes() == 0:
         return ['%s has no query table, so a dedicated server would answer a flat sea while the '
                 'clients drew waves. Run Water > Bake Ocean Spectrum.' % spectrum_path]
@@ -963,6 +969,13 @@ def check_two_sea_states():
 def run():
     """Every check. Returns True when they all pass."""
     _log('Verifying contract')
+
+    # First, and before anything is measured or sampled. An asset that is still being built reports
+    # itself as a placeholder a few texels square, and a probe handed one samples the engine's
+    # default - which would be reported here as the atlas and the table having parted, when what
+    # actually happened is that the editor had been open for four seconds.
+    if unreal:
+        unreal.MobWaterEditorLibrary.finish_asset_compilation()
 
     failures = []
 

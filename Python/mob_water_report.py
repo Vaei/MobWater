@@ -171,6 +171,11 @@ def run():
     _log('Cost report')
     _log('  (editor estimates, on whatever preview platform is active - not the target compiler)')
 
+    # Before anything is measured. A texture still being built reports itself as a placeholder a few
+    # texels square, and a report quoting a two megabyte sea state at thirty two square is worse than
+    # no report at all.
+    unreal.MobWaterEditorLibrary.finish_asset_compilation()
+
     masters()
     permutations()
     texture_memory()
