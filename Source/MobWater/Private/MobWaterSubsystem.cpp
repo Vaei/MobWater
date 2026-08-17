@@ -3,6 +3,7 @@
 #include "MobWaterSubsystem.h"
 
 #include "MobWaterComponent.h"
+#include "MobWaterDeterminism.h"
 #include "MobWaterDisturbanceComponent.h"
 #include "MobWaterExclusionComponent.h"
 #include "MobWaterModule.h"
@@ -208,7 +209,25 @@ void UMobWaterSubsystem::Tick(float DeltaTime)
 
 	++TickCount;
 
+	// Before the clock, because while the harness is running the clock is the harness's.
+	if (FMobWaterDeterminism::IsEnabled())
+	{
+		if (!Determinism)
+		{
+			Determinism = MakeUnique<FMobWaterDeterminism>();
+		}
+
+		Determinism->BeginFrame(*this);
+	}
+
 	TickClock(DeltaTime);
+
+	// Immediately after the fold and before anything else, so what lands in the file is the wave
+	// model rather than whatever else happened to run in the same frame.
+	if (Determinism)
+	{
+		Determinism->Record(*this);
+	}
 
 	// The clock moves every frame and the wave set almost never does, so they are published apart. The
 	// set is seventeen vector writes; paying for them every frame to re-send values nobody changed is

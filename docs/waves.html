@@ -153,11 +153,37 @@ It found a real fault at ten times that figure, and the fault was the sampler ra
 
 <p><code>GetWaterTime</code> is the folded value. Anything reproducing a surface later - a replay, a server checking a client's claim - wants that rather than the world's own time.</p>
 
+<h3 id="determinism">Three machines, asserted</h3>
+
+<p>Everything else here is asserted on one machine, and one machine cannot fail the claim the plugin rests on: that a server and a client handed the same instant compute exactly the same surface. That claim is only about two.</p>
+
+<pre><code>python Python/mob_water_determinism.py --engine &lt;engine&gt; --project &lt;project.uproject&gt;</code></pre>
+
+<p>It launches a real dedicated server and two real clients that connect to it, has each spawn its own body of water and record the surface at eight fixed points every frame, and compares the files. Three runs, and the second is the one that matters:</p>
+
+<div class="tw"><table class="free">
+<tbody>
+<tr><td><b>The same clock</b></td><td>all three handed the same instant. Nothing but an exact match is accepted, because there is nowhere for a difference to come from</td></tr>
+<tr><td><b>The clock stepped</b></td><td>the three start at 0, at one loop period, and at a thousand of them - a raw clock of eighty hours. Folded, all three are the same instant, so the surfaces have to be identical again. That is what proves the fold: a wrap out by anything at all leaves a machine an hour into a session drawing a different sea from one that just started, which is not a bug anybody finds by playing</td></tr>
+<tr><td><b>The control</b></td><td>two machines a third of a loop apart, which <i>must</i> disagree. Without it the harness passes just as happily on a recorder that writes the same row every frame</td></tr>
+</tbody>
+</table></div>
+
+<p>Last run: 400 frames on each of three machines, every row identical to the last digit of a double, and the control differed.</p>
+
+<div class="note">
+The synthetic clock is the point rather than a shortcut. A real clock differs between machines by design, so a comparison against one would be measuring the clock instead of the water and would fail for a reason nobody could fix. Handed the same instant, the two sides have nothing left to disagree about but the arithmetic.
+</div>
+
+<div class="warn">
+Its step is a <b>sixty fourth</b> of a second, not a sixtieth, because a sixty fourth is exactly representable in binary. That is not tidiness: a machine eighty hours into a session rounds a clock of 288000.0166 differently from one that rounds 0.0166, and the comparison would then fail on the precision of the number it was handed rather than on the fold. That failure is real - <b>the fold cannot recover precision the raw time has already lost</b> - and it is a reason to hand in a clock that is not enormous, not a reason to distrust the wrap.
+</div>
+
 <h2>The same maths twice</h2>
 
 <p><code>MobWaterWaves.h</code> and <code>Shaders/Public/MobWaterWaves.ush</code> are one algorithm written twice, because a vertex shader cannot call C++ and a dedicated server has no GPU. Nothing but a test keeps them equal.</p>
 
-<p><b>Water &rarr; Verify Contract</b> evaluates both at sampled points and instants and reports the worst disagreement. The last run: <b>192 points across 3 instants, worst disagreement 0.00074 cm</b>. The baked tier is checked the same way and agrees to 0.05458 cm, which is looser for a reason the section above gives.</p>
+<p><b>Water &rarr; Verify Contract</b> evaluates both at sampled points and instants and reports the worst disagreement. The last run: <b>384 points across 3 instants and 2 body scales, worst disagreement 0.00099 cm</b>. The baked tier is checked the same way and agrees to 0.05458 cm, which is looser for a reason the section above gives.</p>
 
 <div data-shot="waves.parity"></div>
 

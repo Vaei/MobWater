@@ -100,6 +100,13 @@ Not officially released. Expect updates without versioning, and a changelog that
 <li><code>mob.Water.Debug</code>, and <code>mob.Water.Buoyancy</code> for the pontoons</li>
 </ul>
 
+<h3>Verification</h3>
+
+<ul>
+<li>A networked determinism harness: a real dedicated server and two real clients, each recording the surface at eight fixed points every frame, compared row by row. Run again with the clock stepped by a thousand loop periods, which is what proves the fold, and again with two machines a third of a period apart, which must disagree</li>
+<li>Exclusion checked end to end: real volumes placed, published the way any frame would, and the query compared against what the surface carves</li>
+</ul>
+
 <h3>Known gaps</h3>
 
 <ul>

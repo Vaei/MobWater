@@ -279,10 +279,12 @@ public:
 	 * A compiled permutation, so a body with plain foam pays for neither the sample nor its
 	 * coordinates.
 	 *
-	 * ScriptName because Python drops the leading b and would then have two properties called
-	 * foam_texture on this class, which it warns about on every editor boot.
+	 * ScriptName because Python drops a bool's leading b - from whatever it is called, the meta
+	 * included - and this would otherwise be a second foam_texture on the class, which it warns
+	 * about on every editor boot. The name given here has to start with something else for that
+	 * reason.
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Foam", meta=(EditCondition="bFoam", ScriptName="bFoamTexture"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Foam", meta=(EditCondition="bFoam", ScriptName="UseFoamTexture"))
 	bool bFoamTexture = false;
 
 	/**
