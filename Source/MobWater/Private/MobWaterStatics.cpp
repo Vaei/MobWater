@@ -76,6 +76,16 @@ void UMobWaterStatics::GetWaterInfoAtLocations(const UObject* Querier,
 	}
 }
 
+void UMobWaterStatics::UnpackBodyWaveScales(float Packed, float& Amplitude, float& Speed)
+{
+	MobWaterBodyScales::Unpack(Packed, Amplitude, Speed);
+}
+
+float UMobWaterStatics::PackBodyWaveScales(float Amplitude, float Speed)
+{
+	return MobWaterBodyScales::Pack(Amplitude, Speed);
+}
+
 void UMobWaterStatics::EvaluateWavePreset(const UMobWaterWavePreset* Preset, FVector2D SampleXY, float Time,
 	FVector& Displacement, FVector& Normal, float& Fold)
 {

@@ -174,8 +174,18 @@ namespace MobWaterData
 	/** Wave steepness at which crest foam starts. 1 is never. */
 	static constexpr int32 CrestFoamThreshold = 9;
 
-	/** Scales every wave's amplitude for this body, after its own depth attenuation. */
+	/**
+	 * Scales every wave's amplitude for this body, with its wave speed in the fraction.
+	 *
+	 * Two values in one slot, which is what MobWaterUnpackBodyScales splits: the whole part is the
+	 * amplitude in hundredths, the fraction is the speed over MobWaterWaveConstants::SpeedRange.
+	 * Packed because the last slot went and these two are the pair a body tunes together - a harbour
+	 * is the open sea at a third the height and half the speed.
+	 */
 	static constexpr int32 WaveAmplitude = 10;
+
+	/** The same slot. A body's wave speed rides in its fraction. */
+	static constexpr int32 WaveSpeed = 10;
 
 	/** World units in from the body's edge over which waves are flattened to nothing. */
 	static constexpr int32 ShoreFadeDistance = 11;

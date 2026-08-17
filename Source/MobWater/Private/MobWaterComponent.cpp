@@ -291,7 +291,7 @@ void UMobWaterComponent::ApplySurface()
 	WriteWaterData(MobWaterData::ClarityDepth, ClarityDepth);
 	WriteWaterData(MobWaterData::MinOpacity, MinOpacity);
 	WriteWaterData(MobWaterData::Unlit, Unlit);
-	WriteWaterData(MobWaterData::WaveAmplitude, WaveAmplitude);
+	WriteWaterData(MobWaterData::WaveAmplitude, MobWaterBodyScales::Pack(WaveAmplitude, WaveSpeed));
 	WriteWaterData(MobWaterData::ShoreFadeDistance, ShoreFadeDistance);
 	WriteWaterData(MobWaterData::Roughness, Roughness);
 	WriteWaterData2(MobWaterData::HalfExtent, Extent);
@@ -529,9 +529,15 @@ FMobWaterInfo UMobWaterComponent::GetWaterInfoAtLocation(const FVector& Location
 
 	FMobWaterWaveParams Params = GetWaveParams();
 
-	// The per-body amplitude is applied here and in the shader's custom primitive data, and it has to
-	// be the same multiply in both or the query answers a different surface from the one drawn.
-	Params.AmplitudeScale *= WaveAmplitude;
+	// Through the pack and back out again, not straight off the properties. The shader only ever sees
+	// the packed float, so reading the raw values here would answer a surface a fraction away from
+	// the one being drawn - which is exactly the disagreement the parity probe exists to catch.
+	float Amplitude = 1.f;
+	float Speed = 1.f;
+	MobWaterBodyScales::Unpack(MobWaterBodyScales::Pack(WaveAmplitude, WaveSpeed), Amplitude, Speed);
+
+	Params.AmplitudeScale *= Amplitude;
+	Params.SpeedScale *= Speed;
 
 	FMobWaterInfo Info = UMobWaterStatics::EvaluateWaterAtNative(
 		Params, Location,

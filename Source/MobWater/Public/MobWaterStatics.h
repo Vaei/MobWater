@@ -66,6 +66,19 @@ public:
 		TArray<FMobWaterInfo>& OutInfos);
 
 	/**
+	 * A body's own wave amplitude and speed, split out of the one data slot they share.
+	 *
+	 * Exposed because the parity test drives it: the shader unpacks the same float in four lines of
+	 * its own, and nothing but a test keeps the two readings of it equal.
+	 */
+	UFUNCTION(BlueprintPure, Category="Water|Waves")
+	static void UnpackBodyWaveScales(float Packed, float& Amplitude, float& Speed);
+
+	/** The reverse, which is what the component writes into the slot. */
+	UFUNCTION(BlueprintPure, Category="Water|Waves")
+	static float PackBodyWaveScales(float Amplitude, float Speed);
+
+	/**
 	 * The surface above a point, from a wave set given explicitly.
 	 *
 	 * Explicit rather than looked up because this is the function the CPU and GPU parity test drives:

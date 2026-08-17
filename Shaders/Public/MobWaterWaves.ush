@@ -26,6 +26,22 @@
 #define MOB_WATER_GRAVITY 980.0f
 #define MOB_WATER_MAX_WAVES 8
 #define MOB_WATER_MAX_STEEPNESS 1.0f
+#define MOB_WATER_SPEED_RANGE 5.0f
+
+/**
+ * Splits a body's packed wave slot into how tall its waves are and how fast they run.
+ *
+ * Two values in one float because the custom primitive data is full at the engine's thirty six. The
+ * whole part is the amplitude in hundredths, the fraction is the speed over MOB_WATER_SPEED_RANGE.
+ * MobWaterBodyScales in MobWaterWaves.h packs it.
+ */
+void MobWaterUnpackBodyScales(float Packed, out float Amplitude, out float Speed)
+{
+	const float Whole = floor(Packed);
+
+	Amplitude = Whole * 0.01f;
+	Speed = (Packed - Whole) * MOB_WATER_SPEED_RANGE;
+}
 
 /** Matches FVector2f::GetSafeNormal, which returns zero rather than a NaN for a zero direction. */
 float2 MobWaterSafeNormal(float2 V)

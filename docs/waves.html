@@ -59,7 +59,15 @@ There is no speed on a wave, deliberately. In deep water a wave's phase speed is
 <tr><td><b>Choppiness Scale</b></td><td>scales how far crests lean. 0 leaves sines, which is what a small still body wants</td></tr>
 </table></div>
 
-<p>The three scalars exist so one preset can serve a pond and a harbour at different amplitudes, rather than two sets that drift apart the first time one is tuned. A body then scales again with its own <b>Wave Amplitude</b>.</p>
+<p>The three scalars exist so one preset can serve a pond and a harbour at different amplitudes, rather than two sets that drift apart the first time one is tuned. A body then scales again with its own <b>Wave Amplitude</b> and <b>Wave Speed</b> - the same authored waves at a third the height and half the speed, which is what a harbour is next to the sea it opens onto.</p>
+
+<div class="note">
+Those two share one slot of a body's per-instance data, which is full at the engine's thirty six floats: the amplitude is the whole part in hundredths and the speed is the fraction. It is why the amplitude is quantised to a hundredth and the speed tops out at five. The query packs and unpacks the same float the shader reads, so neither can answer a surface the other is not drawing.
+</div>
+
+<div class="warn">
+Neither touches the <a href="#the-baked-sea">baked sea</a>. Its frequencies are quantised to whole turns over the loop, which is the only reason it loops at all, and a body running it faster would be running a sea that no longer meets itself. Scale a baked sea on the spectrum asset instead.
+</div>
 
 <div data-shot="waves.steepness"></div>
 

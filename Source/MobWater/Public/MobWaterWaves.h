@@ -40,6 +40,49 @@ namespace MobWaterWaveConstants
 	 * than trusting the data means a query and a vertex cannot disagree about whether it happened.
 	 */
 	static constexpr float MaxSteepness = 1.f;
+
+	/**
+	 * The widest a body's own wave speed may be, which is what its packed fraction is measured in.
+	 *
+	 * A range rather than the value itself, because amplitude and speed share one data slot and only
+	 * a bounded number fits in a fraction. Five is well past anything a sea does and leaves the
+	 * fraction about three ten thousandths of resolution, which is finer than the control's own step.
+	 */
+	static constexpr float SpeedRange = 5.f;
+}
+
+/**
+ * A body's own wave amplitude and wave speed, in one float.
+ *
+ * The custom primitive data is full at the engine's thirty six, so a new value has to share. The
+ * whole part is the amplitude in hundredths and the fraction is the speed over SpeedRange, which is
+ * the same idiom the foam slots use.
+ *
+ * The pack is here rather than in the component because the CPU query has to read back what it
+ * wrote: the shader sees only the packed float, so a query that used the raw properties would answer
+ * a fractionally different surface from the one being drawn.
+ */
+namespace MobWaterBodyScales
+{
+	static FORCEINLINE float Pack(float Amplitude, float Speed)
+	{
+		const float Whole = FMath::RoundToFloat(FMath::Clamp(Amplitude, 0.f, 10.f) * 100.f);
+
+		// Held a whisker under one so the amplitude still floors out of it.
+		const float Fraction = FMath::Min(
+			FMath::Clamp(Speed, 0.f, MobWaterWaveConstants::SpeedRange) / MobWaterWaveConstants::SpeedRange,
+			0.9995f);
+
+		return Whole + Fraction;
+	}
+
+	static FORCEINLINE void Unpack(float Packed, float& OutAmplitude, float& OutSpeed)
+	{
+		const float Whole = FMath::FloorToFloat(Packed);
+
+		OutAmplitude = Whole * 0.01f;
+		OutSpeed = (Packed - Whole) * MobWaterWaveConstants::SpeedRange;
+	}
 }
 
 /**
