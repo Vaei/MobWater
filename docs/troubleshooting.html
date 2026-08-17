@@ -38,6 +38,7 @@
 <tbody>
 <tr><td>It never moves</td><td>the parameter collection was never written. <code>mob.Water.Debug</code> reports <code>collection none - water will be flat</code></td></tr>
 <tr><td>It moves in game and not in the viewport</td><td>it should do both; the subsystem ticks in editor. If not, the level has no water subsystem, which means no world of a supported type</td></tr>
+<tr><td>An ocean carries the wrong sea</td><td>its <b>Spectrum</b>. Each ocean draws the one it is set to, and one with none set draws no baked sea at all - only its wave preset</td></tr>
 <tr><td>A pond has an ocean's swell</td><td>its <b>Wave Preset</b>. A newly placed body takes the preset for its shape, and one that was duplicated from an ocean did not</td></tr>
 <tr><td>Waves stand above dry ground at the rim</td><td><b>Shore Fade Distance</b> too short for the wavelength. It has to be longer than the waves it is putting down</td></tr>
 <tr><td>The surface reads as faceted far from the origin</td><td>should not happen - both phase terms are folded for exactly this. If it does, a wave under a centimetre long is in the set</td></tr>
@@ -93,7 +94,7 @@
 <tr><td>Water is on a bridge deck over a lake</td><td>exclusion is a footprint, not a storey. Inherent</td></tr>
 <tr><td>A mesh exclusion behaves as a rectangle</td><td>no outline was baked, and it says so once. Set <b>Exclusion Mesh</b>, or put the component on an actor that has a static mesh</td></tr>
 <tr><td>A mesh exclusion cuts nothing</td><td>it reaches only as far as its window does, and four are carried at once. <code>mob.Water.Debug</code> reports how many outlines are registered, how many have a mask, and where the window is</td></tr>
-<tr><td>A character in a carved hull still counts as swimming</td><td>the query does not subtract exclusion. Ask <code>GetExclusionAtLocation</code> - see <a href="exclusion.html#asking-on-the-cpu">Exclusion</a></td></tr>
+<tr><td>A character in a carved hull still counts as swimming</td><td>the volume has <b>Blocks Submersion</b> off. With it on, the query answers no water there</td></tr>
 </tbody>
 </table></div>
 
@@ -115,9 +116,11 @@
 <div class="tw"><table class="free">
 <thead><tr><th>Symptom</th><th>Cause</th></tr></thead>
 <tbody>
-<tr><td>Two machines disagree about the surface</td><td>the clock. <code>mob.Water.Debug</code> on both and compare the time line first</td></tr>
+<tr><td>Two machines disagree about the surface</td><td>the clock. Record both with <code>-trace=default,MobWater</code> and scrub the <a href="queries.html#rewind">Water track</a> together - there are only three lines on it and one of them will have parted</td></tr>
 <tr><td>The surface jumps</td><td>the engine fallback clock, corrected in steps. A step in the clock is a step in every wave at once. Bind a synchronised source</td></tr>
-<tr><td>They agree on the clock and still disagree</td><td>they asked about different places. Compare the query points, not the water</td></tr>
+<tr><td>They agree on the clock and still disagree</td><td>they asked about different places. <code>mob.Water.TraceQueries 1</code> puts the query point on the track beside the answer, which is the only way to tell that from a water bug</td></tr>
+<tr><td>A character on a boat is in the wrong water</td><td>almost never the water. Its query point comes off the hull's transform, so a small error there is a large one at the feet. Compare the boat's track, not the character's</td></tr>
+<tr><td>Ripples and foam are on one machine and not the other</td><td>inherent, and not a bug. They live in a render target a dedicated server has no GPU to hold. Nothing about them is on the track for that reason</td></tr>
 <tr><td>Physics sits slightly off the water it is drawn on</td><td>something read the world's time rather than <code>GetWaterTime</code>. Only the folded value is allowed downstream</td></tr>
 </tbody>
 </table></div>
