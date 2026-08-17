@@ -37,6 +37,10 @@ No effects, no sounds. A plugin cannot know what your splash looks like, so this
 
 <div data-shot="characters.splash"></div>
 
+<div class="note">
+These are the <b>character</b> crossing the surface. The camera crossing it is a separate event with its own hook - see <a href="underwater.html#hooks">hooking the camera going under</a>. In anything but a first person game the two happen at different moments and in different places, and a lens effect bound to a character's crossing goes off while the camera is still in the air.
+</div>
+
 <h3>Footfalls</h3>
 
 <p><code>Splash(Location, Strength)</code> is meant to be called by whatever knows when a foot lands. An animation notify knows; this component would have to guess. It splashes and pushes the surface in one call.</p>

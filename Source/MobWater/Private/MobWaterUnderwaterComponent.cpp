@@ -149,11 +149,19 @@ void UMobWaterUnderwaterComponent::TickComponent(float DeltaTime, ELevelTick Tic
 		: 0.f;
 
 	Submersion = Wanted;
+	ImmersionDepth = bFound ? FMath::Max(Info.ImmersionDepth, 0.f) : 0.f;
 
 	const bool bNowSubmerged = Submersion > 0.f;
 	if (bNowSubmerged != bSubmerged)
 	{
 		bSubmerged = bNowSubmerged;
+
+		// Reset on the way in rather than on the way out, so it still reads as how deep the eye had
+		// been for as long as anything cares to ask after it has surfaced.
+		if (bSubmerged)
+		{
+			DeepestImmersion = 0.f;
+		}
 
 		// Hidden rather than faded to nothing when dry. A transparent full-screen quad is still a
 		// full-screen quad, and this renderer is fill bound before it is anything else.
@@ -167,6 +175,8 @@ void UMobWaterUnderwaterComponent::TickComponent(float DeltaTime, ELevelTick Tic
 	{
 		return;
 	}
+
+	DeepestImmersion = FMath::Max(DeepestImmersion, ImmersionDepth);
 
 	SetCustomPrimitiveDataFloat(MobUnderwaterData::AbsorbColor, AbsorbColor.R);
 	SetCustomPrimitiveDataFloat(MobUnderwaterData::AbsorbColor + 1, AbsorbColor.G);

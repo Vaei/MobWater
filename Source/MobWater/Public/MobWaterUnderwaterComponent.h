@@ -115,6 +115,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Caustics", meta=(EditCondition="bCaustics", ClampMin="1.0", ForceUnits="cm"))
 	float CausticDepth = 800.f;
 
+	/**
+	 * The eye crossing the surface, either way.
+	 *
+	 * This is the camera's own crossing and nothing to do with any character's. A swimmer whose head
+	 * is under is in water; a camera three metres behind them is not, and the effects that belong to
+	 * each are different ones. Bind UMobWaterSubsystem::OnViewSubmergedChanged instead where the
+	 * plane is one the plugin attached, because that one is rebuilt whenever the view changes hands.
+	 */
 	UPROPERTY(BlueprintAssignable, Category="Underwater")
 	FMobWaterSubmerged OnSubmergedChanged;
 
@@ -125,6 +133,19 @@ public:
 	UFUNCTION(BlueprintPure, Category="Underwater")
 	float GetSubmersion() const { return Submersion; }
 
+	/** How far the eye is below the surface, and zero above it. */
+	UFUNCTION(BlueprintPure, Category="Underwater")
+	float GetImmersionDepth() const { return ImmersionDepth; }
+
+	/**
+	 * The deepest the eye reached without coming up, kept after it has.
+	 *
+	 * What a lens effect wants at the moment of surfacing: depth is nothing by then, and how wet the
+	 * lens should be is a question about where it has just been. Cleared on going back under.
+	 */
+	UFUNCTION(BlueprintPure, Category="Underwater")
+	float GetDeepestImmersion() const { return DeepestImmersion; }
+
 protected:
 	void ApplyPlacement();
 
@@ -133,4 +154,6 @@ protected:
 
 	bool bSubmerged = false;
 	float Submersion = 0.f;
+	float ImmersionDepth = 0.f;
+	float DeepestImmersion = 0.f;
 };

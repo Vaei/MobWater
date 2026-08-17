@@ -11,7 +11,11 @@
 
 class UMaterialParameterCollection;
 class UMobWaterSpectrum;
+class UMobWaterUnderwaterComponent;
 class UMobWaterWavePreset;
+
+/** The camera crossing the surface, either way, and how deep it had been when it came up. */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FMobWaterViewSubmerged, bool, bSubmerged, float, DeepestImmersion);
 
 /**
  * Everything about the water that is not one body's business.
@@ -27,6 +31,8 @@ class MOBWATER_API UMobWaterSubsystem : public UTickableWorldSubsystem
 	GENERATED_BODY()
 
 public:
+	UFUNCTION(BlueprintPure, Category="Water",
+		meta=(WorldContext="WorldContextObject", DisplayName="Get Mob Water Subsystem"))
 	static UMobWaterSubsystem* Get(const UObject* WorldContextObject);
 
 	//~ Begin UWorldSubsystem Interface
@@ -90,6 +96,46 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category="Water")
 	void SetReflection(float Intensity, float Rotation);
+
+	/**
+	 * The camera crossing the surface, which is not the character crossing it.
+	 *
+	 * The two are different events and want different effects. A swimmer with their head under is in
+	 * water and their splash belongs to them; the camera is somewhere else entirely in anything but a
+	 * first person game, and what belongs to it is what happens to a lens - droplets on surfacing,
+	 * spatter, a wipe. Bind this rather than the plane's own delegate: the plane is rebuilt whenever
+	 * the view changes hands, and a binding on it would go with it.
+	 *
+	 * Broadcast for whatever is drawing the picture, so it fires for a debug camera and for an editor
+	 * viewport too.
+	 */
+	UPROPERTY(BlueprintAssignable, Category="Water")
+	FMobWaterViewSubmerged OnViewSubmergedChanged;
+
+	/** Whether the camera is under the surface. Nothing to do with whether a character is. */
+	UFUNCTION(BlueprintPure, Category="Water")
+	bool IsViewSubmerged() const;
+
+	/** 0 above the surface, 1 fully under it, faded across the waterline. */
+	UFUNCTION(BlueprintPure, Category="Water")
+	float GetViewSubmersion() const;
+
+	/** How far the camera is below the surface, and zero above it. */
+	UFUNCTION(BlueprintPure, Category="Water")
+	float GetViewImmersionDepth() const;
+
+	/**
+	 * The deepest the camera reached without coming up, kept after it has.
+	 *
+	 * What a lens effect wants at the moment of surfacing, because depth is nothing by then and how
+	 * wet the lens should be is a question about where it has just been.
+	 */
+	UFUNCTION(BlueprintPure, Category="Water")
+	float GetViewDeepestImmersion() const;
+
+	/** The plane in front of whatever is drawing, for anything the delegates do not answer. */
+	UFUNCTION(BlueprintPure, Category="Water")
+	UMobWaterUnderwaterComponent* GetViewUnderwater() const { return ViewUnderwater.Get(); }
 
 	void RegisterBody(class UMobWaterComponent* Body);
 	void UnregisterBody(class UMobWaterComponent* Body);
@@ -194,7 +240,7 @@ protected:
 	void TickUnderwater();
 
 	/** Attaches the view to a camera manager, or places it where a free camera drew from, or drops it. */
-	void UpdateUnderwaterView(class USceneComponent* View);
+	void UpdateUnderwaterView(class USceneComponent* View, bool bWanted);
 
 	/**
 	 * Where a camera nobody owns is drawing from.
@@ -213,6 +259,10 @@ protected:
 	 * manager rather than placed at it, so the plane is where the view is on the frame it is drawn.
 	 */
 	AActor* SpawnUnderwaterView();
+
+	/** Re-broadcast from the plane, so a binding outlives the plane being rebuilt. */
+	UFUNCTION()
+	void OnViewSubmerged(bool bSubmerged);
 
 	/**
 	 * Copies the stepped field back into the history with every push waiting on it added.
@@ -298,6 +348,10 @@ protected:
 	/** Carries the underwater plane, attached to whatever is drawing the picture. */
 	UPROPERTY(Transient)
 	TWeakObjectPtr<AActor> UnderwaterView;
+
+	/** The plane on it, held so the view's own crossing can be re-broadcast from here. */
+	UPROPERTY(Transient)
+	TWeakObjectPtr<UMobWaterUnderwaterComponent> ViewUnderwater;
 
 	/** The light being followed. Re-found when it goes away, which is what a level transition is. */
 	UPROPERTY(Transient)

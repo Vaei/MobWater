@@ -94,6 +94,8 @@ All of it costs one translucent plane, and runs anywhere - including the mobile 
 - **Absorption that hides distance** rather than only tinting it, marched the same way the surface is shaded
 - **Caustics on what is submerged**, projected from a volume that reads the same depth buffer - a light that casts a texture instead of a falloff
 - **The line at the surface**, from underneath, where the world above goes to reflection
+- **It attaches itself**, to whichever camera is drawing the picture - the player's, a debug camera the moment it takes over, an editor viewport when nothing is playing
+- **The camera going under is its own event**, separate from any character going under, because in anything but a first person game they happen at different moments in different places. Bind `OnViewSubmergedChanged` for what belongs to a lens - droplets on surfacing, spatter, a muffle - and it carries how deep the camera had been, which is the number depth cannot give you once it has surfaced
 
 ### Built for the mobile forward path
 

@@ -81,16 +81,47 @@ Fading the whole screen in over a few centimetres instead is the same informatio
 A compiled permutation, not a strength of zero. It is two texture reads on a quad that covers the screen, which is the most expensive place in this renderer to carry something nobody asked for. Off, the taps and their coordinates are not in the shader at all - the plane runs the plain <code>M_MobWaterUnderwater</code> rather than <code>MI_MobWaterUnderwater_Caustics</code>.
 </div>
 
+<h2 id="hooks">Hooking the camera going under</h2>
+
+<p>The camera crossing the surface is <b>its own event</b>, separate from any character crossing it, and the two want different effects. A swimmer with their head under is in water and the splash belongs to them; in anything but a first person game the camera is metres away from that, and what belongs to it is what happens to a <b>lens</b> - droplets on surfacing, spatter, a wipe, a muffle on the mix.</p>
+
+<p>Bind it on the subsystem:</p>
+
+<div class="tw"><table class="free">
+<tbody>
+<tr><td><code>OnViewSubmergedChanged</code></td><td><code>(bool bSubmerged, float DeepestImmersion)</code>. The camera crossing the surface, either way</td></tr>
+<tr><td><code>IsViewSubmerged()</code></td><td>whether the camera is under</td></tr>
+<tr><td><code>GetViewSubmersion()</code></td><td>0 above, 1 fully under. The crossfade value</td></tr>
+<tr><td><code>GetViewImmersionDepth()</code></td><td>how far below the surface the camera is, and zero above it</td></tr>
+<tr><td><code>GetViewDeepestImmersion()</code></td><td>the deepest it reached without coming up, kept after it has</td></tr>
+<tr><td><code>GetViewUnderwater()</code></td><td>the plane itself, for anything the rest does not answer</td></tr>
+</tbody>
+</table></div>
+
+<div class="important">
+<code>DeepestImmersion</code> is there because depth is the wrong question at the moment of surfacing - it is nothing by then. How wet a lens should be is a question about where the camera has just been, so scale the droplets by that and let them dry off on your own timer. It is cleared on going back under, not on coming up.
+</div>
+
+<p>Bind the <b>subsystem</b> and not the plane's own <code>OnSubmergedChanged</code> wherever the plane is one the plugin attached. The plane is rebuilt every time the view changes hands - a debug camera taking over, a play starting, a viewport taking the picture back - and a binding on it goes with it. The subsystem re-broadcasts and outlives all of that, including saying <code>false</code> on the way out if the view is taken away while it is still under.</p>
+
+<p>The component's own hooks are still there for a plane a project attached itself:</p>
+
 <div class="tw"><table class="free">
 <tbody>
 <tr><td><code>IsSubmerged()</code></td><td>whether the camera is under</td></tr>
 <tr><td><code>GetSubmersion()</code></td><td>0 above, 1 fully under. The crossfade value</td></tr>
+<tr><td><code>GetImmersionDepth()</code></td><td>how far below the surface, and zero above it</td></tr>
+<tr><td><code>GetDeepestImmersion()</code></td><td>the deepest it reached without coming up</td></tr>
 <tr><td><code>OnSubmergedChanged</code></td><td>bind sound, audio filtering, breath, whatever a project does when the head goes under</td></tr>
 </tbody>
 </table></div>
 
 <div class="note">
 The submersion test asks the same query everything else does, so the camera goes under at the height the waves actually put the surface, not at the body's still level. A swell passing over a swimmer's head submerges the view.
+</div>
+
+<div class="warn">
+Droplets, spatter and any other lens effect are the project's own Niagara or material, broadcast the way splashes are. MobWater says when, not what - a lens is a look, and a look belongs to whoever is making the game.
 </div>
 
 <h2>What is not done</h2>

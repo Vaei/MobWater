@@ -277,7 +277,7 @@ void UMobWaterSubsystem::TickUnderwater()
 	// gains a body later gets it on the frame the body registers.
 	if (!Settings->bAutoUnderwater || Bodies.Num() == 0 || IsRunningDedicatedServer())
 	{
-		UpdateUnderwaterView(nullptr);
+		UpdateUnderwaterView(nullptr, false);
 		return;
 	}
 
@@ -306,7 +306,7 @@ void UMobWaterSubsystem::TickUnderwater()
 		}
 	}
 
-	UpdateUnderwaterView(View);
+	UpdateUnderwaterView(View, true);
 }
 
 bool UMobWaterSubsystem::GetFreeViewTransform(FTransform& OutTransform) const
@@ -344,20 +344,37 @@ bool UMobWaterSubsystem::GetFreeViewTransform(FTransform& OutTransform) const
 	return false;
 }
 
-void UMobWaterSubsystem::UpdateUnderwaterView(USceneComponent* View)
+void UMobWaterSubsystem::UpdateUnderwaterView(USceneComponent* View, bool bWanted)
 {
 	AActor* Host = UnderwaterView.Get();
+
+	if (!bWanted)
+	{
+		if (Host)
+		{
+			// Said before it goes. A view that was under the surface when it was taken away has still
+			// left the water as far as anything listening is concerned, and without this a lens effect
+			// that came on when it went under has nothing to tell it to come off.
+			if (IsViewSubmerged())
+			{
+				OnViewSubmerged(false);
+			}
+
+			Host->Destroy();
+			UnderwaterView.Reset();
+			ViewUnderwater.Reset();
+		}
+		return;
+	}
 
 	FTransform Free = FTransform::Identity;
 	const bool bFree = !View && GetFreeViewTransform(Free);
 
+	// Left where it is rather than torn down. There is no view this frame, which is a frame the editor
+	// did not work one out, not a view that has gone away - and rebuilding the plane over it would
+	// blink the water off and report a crossing in each direction that never happened.
 	if (!View && !bFree)
 	{
-		if (Host)
-		{
-			Host->Destroy();
-			UnderwaterView.Reset();
-		}
 		return;
 	}
 
@@ -428,7 +445,43 @@ AActor* UMobWaterSubsystem::SpawnUnderwaterView()
 	Plane->SetupAttachment(Root);
 	Plane->RegisterComponent();
 
+	// Re-broadcast, so a project binds once to the subsystem rather than chasing a plane that is
+	// rebuilt every time the view changes hands.
+	Plane->OnSubmergedChanged.AddDynamic(this, &UMobWaterSubsystem::OnViewSubmerged);
+	ViewUnderwater = Plane;
+
 	return Host;
+}
+
+void UMobWaterSubsystem::OnViewSubmerged(bool bSubmerged)
+{
+	const UMobWaterUnderwaterComponent* Plane = ViewUnderwater.Get();
+
+	OnViewSubmergedChanged.Broadcast(bSubmerged, Plane ? Plane->GetDeepestImmersion() : 0.f);
+}
+
+bool UMobWaterSubsystem::IsViewSubmerged() const
+{
+	const UMobWaterUnderwaterComponent* Plane = ViewUnderwater.Get();
+	return Plane && Plane->IsSubmerged();
+}
+
+float UMobWaterSubsystem::GetViewSubmersion() const
+{
+	const UMobWaterUnderwaterComponent* Plane = ViewUnderwater.Get();
+	return Plane ? Plane->GetSubmersion() : 0.f;
+}
+
+float UMobWaterSubsystem::GetViewImmersionDepth() const
+{
+	const UMobWaterUnderwaterComponent* Plane = ViewUnderwater.Get();
+	return Plane ? Plane->GetImmersionDepth() : 0.f;
+}
+
+float UMobWaterSubsystem::GetViewDeepestImmersion() const
+{
+	const UMobWaterUnderwaterComponent* Plane = ViewUnderwater.Get();
+	return Plane ? Plane->GetDeepestImmersion() : 0.f;
 }
 
 void UMobWaterSubsystem::TickSun()

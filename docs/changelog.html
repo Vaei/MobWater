@@ -89,6 +89,7 @@ Not officially released. Expect updates without versioning, and a changelog that
 <li>An underwater component: a plane in front of the camera that absorbs by distance, with the waterline drawn across it as a real line that tilts as a swell passes, a meniscus bead on it, and light dappling down through the water as a compiled permutation</li>
 <li>The underwater view rides an actor of its own that follows whichever camera is drawing the picture: attached to the local player's camera manager, to the debug camera the moment it takes the local player over, and placed at an editor viewport when nothing is playing at all. It used to be a component on every local controller's camera manager, which failed three ways: a play world draws nothing a hidden actor owns and a camera manager is hidden, an editor viewport has no camera manager to hang it on, and a debug camera left the plane standing where the old view had stopped</li>
 <li>A query API that answers from the wave model alone, attributed to the object that asked</li>
+<li>The camera crossing the surface is its own event: <code>UMobWaterSubsystem::OnViewSubmergedChanged</code>, plus the submersion, the depth, and the deepest the camera reached without coming up. Separate from a character's crossing because in anything but a first person game the two happen at different moments in different places, and what belongs to a camera is what happens to a lens</li>
 </ul>
 
 <h3>Editor</h3>
