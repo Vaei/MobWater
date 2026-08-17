@@ -194,6 +194,15 @@ protected:
 	void TickUnderwater();
 
 	/**
+	 * Puts the underwater view in front of a camera that is nobody's.
+	 *
+	 * An editor viewport, a play ejected from, and simulate all draw from somewhere no player camera
+	 * manager knows about, and those are the views a body of water is looked at from while it is being
+	 * built - so the one place the effect is most needed is the one place it was never attached.
+	 */
+	void TickViewportUnderwater(bool bWanted);
+
+	/**
 	 * Copies the stepped field back into the history with every push waiting on it added.
 	 *
 	 * Returns whether it drew. False means there was nothing to stamp and the plain copy still has to
@@ -273,6 +282,10 @@ protected:
 
 	/** Said once, for the same reason. */
 	bool bWarnedStampOverflow = false;
+
+	/** Carries the underwater view where no player camera manager is driving the picture. */
+	UPROPERTY(Transient)
+	TWeakObjectPtr<AActor> ViewportUnderwater;
 
 	/** The light being followed. Re-found when it goes away, which is what a level transition is. */
 	UPROPERTY(Transient)

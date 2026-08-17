@@ -20,6 +20,7 @@
 #include "Engine/TextureRenderTarget2D.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
+#include "Engine/LocalPlayer.h"
 #include "GameFramework/GameStateBase.h"
 #include "GameFramework/PlayerController.h"
 #include "Kismet/KismetMaterialLibrary.h"
@@ -285,6 +286,8 @@ void UMobWaterSubsystem::TickUnderwater()
 		return;
 	}
 
+	bool bPlayerHasTheView = false;
+
 	for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
 	{
 		const APlayerController* Controller = It->Get();
@@ -294,7 +297,30 @@ void UMobWaterSubsystem::TickUnderwater()
 		}
 
 		APlayerCameraManager* Camera = Controller->PlayerCameraManager;
-		if (!Camera || Camera->GetComponentByClass(UMobWaterUnderwaterComponent::StaticClass()))
+		if (!Camera)
+		{
+			continue;
+		}
+
+		UActorComponent* Existing = Camera->GetComponentByClass(UMobWaterUnderwaterComponent::StaticClass());
+
+		// Whether a local player is looking through this controller rather than merely owning it.
+		// Switching to a debug camera hands the local player a second controller, and the one it was
+		// taken from keeps a camera manager that has stopped following anything - so a plane left on
+		// it is a quad standing wherever that view stopped.
+		const ULocalPlayer* LocalPlayer = Cast<ULocalPlayer>(Controller->Player);
+		if (!LocalPlayer || LocalPlayer->PlayerController != Controller)
+		{
+			if (Existing)
+			{
+				Existing->DestroyComponent();
+			}
+			continue;
+		}
+
+		bPlayerHasTheView = true;
+
+		if (Existing)
 		{
 			continue;
 		}
@@ -309,6 +335,91 @@ void UMobWaterSubsystem::TickUnderwater()
 			Plane->RegisterComponent();
 		}
 	}
+
+	TickViewportUnderwater(!bPlayerHasTheView);
+}
+
+void UMobWaterSubsystem::TickViewportUnderwater(bool bWanted)
+{
+#if WITH_EDITOR
+	UWorld* World = GetWorld();
+	if (!GIsEditor || !World)
+	{
+		return;
+	}
+
+	// What the editor last worked out it was looking through, which is the only place a viewport
+	// camera is readable from a module that ships - asking a viewport client would drag UnrealEd into
+	// it. Cached whether or not the viewport actually redrew, so this survives a viewport that is not
+	// in realtime. Perspective only: a four pane layout caches its top and side views here too, and
+	// putting the water in front of one of those puts it nowhere anybody is looking.
+	const FMatrix* ViewToWorld = nullptr;
+
+	for (const FWorldCachedViewInfo& Info : World->CachedViewInfoRenderedLastFrame)
+	{
+		if (Info.ProjectionMatrix.M[3][3] == 0.f)
+		{
+			ViewToWorld = &Info.ViewToWorld;
+			break;
+		}
+	}
+
+	AActor* Host = ViewportUnderwater.Get();
+
+	if (!bWanted || !ViewToWorld)
+	{
+		if (Host)
+		{
+			Host->Destroy();
+			ViewportUnderwater.Reset();
+		}
+		return;
+	}
+
+	// View space looks down its own Z with Y up, which is not how an actor is turned.
+	const FVector Location = ViewToWorld->GetOrigin();
+	const FRotator Rotation = FRotationMatrix::MakeFromXZ(
+		ViewToWorld->GetUnitAxis(EAxis::Z), ViewToWorld->GetUnitAxis(EAxis::Y)).Rotator();
+
+	if (!Host)
+	{
+		UClass* Class = GetDefault<UMobWaterSettings>()->UnderwaterComponent.LoadSynchronous();
+		if (!Class)
+		{
+			return;
+		}
+
+		FActorSpawnParameters Params;
+		Params.ObjectFlags |= RF_Transient;
+		Params.bHideFromSceneOutliner = true;
+		Params.bNoFail = true;
+		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+		// Spawning inside somebody else's transaction modifies the level, which dirties the map and
+		// puts an undo step on a preview actor. This can land on any frame, so it can land on one where
+		// something is being dragged.
+		TGuardValue<ITransaction*> SuppressTransaction(GUndo, nullptr);
+
+		Host = World->SpawnActor<AActor>(Location, Rotation, Params);
+		if (!Host)
+		{
+			return;
+		}
+
+		USceneComponent* Root = NewObject<USceneComponent>(Host, TEXT("MobWaterViewRoot"));
+		Root->SetMobility(EComponentMobility::Movable);
+		Host->SetRootComponent(Root);
+		Root->RegisterComponent();
+
+		UMobWaterUnderwaterComponent* Plane = NewObject<UMobWaterUnderwaterComponent>(Host, Class);
+		Plane->SetupAttachment(Root);
+		Plane->RegisterComponent();
+
+		ViewportUnderwater = Host;
+	}
+
+	Host->SetActorLocationAndRotation(Location, Rotation);
+#endif
 }
 
 void UMobWaterSubsystem::TickSun()

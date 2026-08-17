@@ -63,6 +63,10 @@ UMobWaterUnderwaterComponent::UMobWaterUnderwaterComponent()
 	PrimaryComponentTick.bCanEverTick = true;
 	PrimaryComponentTick.bStartWithTickEnabled = true;
 
+	// An editor world ticks nothing that has not asked for it, and an editor viewport flown under the
+	// surface is the view this is most often looked at from.
+	bTickInEditor = true;
+
 	Mobility = EComponentMobility::Movable;
 
 	SetCollisionEnabled(ECollisionEnabled::NoCollision);
