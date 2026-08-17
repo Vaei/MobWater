@@ -538,8 +538,15 @@ def _import(filename, asset_name):
 
 def build(resolution=RESOLUTION, frames=FRAMES, tile=TILE_SIZE, period=LOOP_PERIOD,
           wind_speed=WIND_SPEED, wind_direction=WIND_DIRECTION, choppiness=CHOPPINESS, seed=SEED,
-          columns=ATLAS_COLUMNS):
-    """Solves the sea and writes everything it becomes."""
+          columns=ATLAS_COLUMNS, name=ASSET_NAME):
+    """Solves the sea and writes everything it becomes.
+
+    Named, because a level may hold more than one. The layout an ocean reads reaches its material
+    rather than the shared collection, so a harbour on a short chop and the open sea beyond it on a
+    long swell are two assets and two bodies rather than a choice of which one the level gets.
+    """
+    displacement_name = DISPLACEMENT_NAME if name == ASSET_NAME else 'T_%s' % name
+    normal_name = NORMAL_NAME if name == ASSET_NAME else 'T_%sNormal' % name
     if resolution & (resolution - 1):
         raise ValueError('resolution has to be a power of two, not %d' % resolution)
 
@@ -589,17 +596,17 @@ def build(resolution=RESOLUTION, frames=FRAMES, tile=TILE_SIZE, period=LOOP_PERI
             255))
 
     displacement_png = _write_png(
-        os.path.join(directory, DISPLACEMENT_NAME + '.png'), width, height,
+        os.path.join(directory, displacement_name + '.png'), width, height,
         _atlas_rows(fields, resolution, columns, encode_displacement))
 
     normal_png = _write_png(
-        os.path.join(directory, NORMAL_NAME + '.png'), width, height,
+        os.path.join(directory, normal_name + '.png'), width, height,
         _atlas_rows(fields, resolution, columns, encode_normal))
 
     # The table the query reads: the same texels the atlas holds, without its gutter. Written as a
     # file rather than handed over as a list, because two million Python integers crossing the binding
     # costs minutes and a gigabyte to move bytes that are already on disk.
-    table_path = os.path.join(directory, ASSET_NAME + '.bin')
+    table_path = os.path.join(directory, name + '.bin')
     table = bytearray()
     for texels in fields:
         for texel in texels:
@@ -608,10 +615,10 @@ def build(resolution=RESOLUTION, frames=FRAMES, tile=TILE_SIZE, period=LOOP_PERI
     with open(table_path, 'wb') as handle:
         handle.write(table)
 
-    displacement = _import(displacement_png, DISPLACEMENT_NAME)
-    normal = _import(normal_png, NORMAL_NAME)
+    displacement = _import(displacement_png, displacement_name)
+    normal = _import(normal_png, normal_name)
 
-    asset = unreal.load_asset('%s/%s' % (SPECTRUM_ROOT, ASSET_NAME))
+    asset = unreal.load_asset('%s/%s' % (SPECTRUM_ROOT, name))
     if asset is None:
         # The class is named on the factory as well as on the create call. Left unset the factory
         # opens a picker, which in an automated run is a modal dialog nobody is there to answer.
@@ -619,7 +626,7 @@ def build(resolution=RESOLUTION, frames=FRAMES, tile=TILE_SIZE, period=LOOP_PERI
         factory.set_editor_property('data_asset_class', unreal.MobWaterSpectrum)
 
         asset = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
-            ASSET_NAME, SPECTRUM_ROOT, unreal.MobWaterSpectrum, factory)
+            name, SPECTRUM_ROOT, unreal.MobWaterSpectrum, factory)
 
     asset.set_editor_property('displacement_texture', displacement)
     asset.set_editor_property('normal_texture', normal)
@@ -643,7 +650,7 @@ def build(resolution=RESOLUTION, frames=FRAMES, tile=TILE_SIZE, period=LOOP_PERI
     table_mb = len(table) / (1024.0 * 1024.0)
 
     _log('%s: %.0f cm tile, %.1f s loop, %.1f cm rms (about %.1f m significant)'
-         % (ASSET_NAME, tile, period, rms, rms * 4.0 / 100.0))
+         % (name, tile, period, rms, rms * 4.0 / 100.0))
     _log('  %dx%d atlas, %.2f MB each and two of them, and %.2f MB of table'
          % (width, height, atlas_mb, table_mb))
     _log('  displacement +/- %.0f cm across, +/- %.0f cm up, slope to %.2f'

@@ -128,12 +128,6 @@ namespace MobWaterParams
 	/** (Intensity, Rotation in turns, unused, unused) for the reflected sky. */
 	static const FName ReflectionParams = TEXT("ReflectionParams");
 
-	/** (TileSize, LoopPeriod, Resolution, Frames) of the baked sea state. */
-	static const FName SpectrumParams = TEXT("SpectrumParams");
-
-	/** (HorizontalScale, VerticalScale, NormalScale, AtlasColumns) of the same. */
-	static const FName SpectrumScale = TEXT("SpectrumScale");
-
 	/** (U, V, Radius in UV, Strength) per push waiting on the field. An unused slot is all zero. */
 	static const FName Stamp[MobWaterStampSlots] =
 	{
@@ -238,12 +232,6 @@ void UMobWaterSubsystem::Tick(float DeltaTime)
 	{
 		PublishWaves(DefaultWaves);
 		bWavesDirty = false;
-	}
-
-	if (bSpectrumDirty)
-	{
-		PublishSpectrum();
-		bSpectrumDirty = false;
 	}
 
 	TickSun();
@@ -1164,56 +1152,6 @@ void UMobWaterSubsystem::PublishWaves(const FMobWaterWaveParams& Params) const
 	}
 }
 
-void UMobWaterSubsystem::SetSpectrum(const UMobWaterSpectrum* InSpectrum)
-{
-	if (Spectrum.Get() == InSpectrum)
-	{
-		return;
-	}
-
-	if (InSpectrum && Spectrum.IsValid() && !bWarnedSpectrumConflict)
-	{
-		bWarnedSpectrumConflict = true;
-		UE_LOG(LogMobWater, Warning,
-			TEXT("Two oceans on two sea states (%s and %s). The collection holds one layout, so both ")
-			TEXT("draw the second and only the query tells them apart. Put them on one spectrum."),
-			*GetNameSafe(Spectrum.Get()), *GetNameSafe(InSpectrum));
-	}
-
-	Spectrum = InSpectrum;
-	bSpectrumDirty = true;
-}
-
-void UMobWaterSubsystem::PublishSpectrum() const
-{
-	if (!GetCollection())
-	{
-		return;
-	}
-
-	const UMobWaterSpectrum* Baked = Spectrum.Get();
-
-	// A tile of zero would divide by zero in the shader, so an absent sea state is published as a
-	// field with no height in it rather than as nothing at all.
-	if (!Baked || !Baked->IsUsable())
-	{
-		SetVector(MobWaterParams::SpectrumParams, FLinearColor(1024.f, 1.f, 4.f, 2.f));
-		SetVector(MobWaterParams::SpectrumScale, FLinearColor(0.f, 0.f, 0.f, 1.f));
-		return;
-	}
-
-	SetVector(MobWaterParams::SpectrumParams, FLinearColor(
-		Baked->TileSize,
-		Baked->LoopPeriod,
-		static_cast<float>(Baked->Resolution),
-		static_cast<float>(Baked->Frames)));
-
-	SetVector(MobWaterParams::SpectrumScale, FLinearColor(
-		Baked->HorizontalScale,
-		Baked->VerticalScale,
-		Baked->NormalScale,
-		static_cast<float>(FMath::Max(Baked->AtlasColumns, 1))));
-}
 
 void UMobWaterSubsystem::SetReflection(float Intensity, float Rotation)
 {

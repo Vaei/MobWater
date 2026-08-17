@@ -107,12 +107,18 @@ Not officially released. Expect updates without versioning, and a changelog that
 <li>Exclusion checked end to end: real volumes placed, published the way any frame would, and the query compared against what the surface carves</li>
 </ul>
 
+<h3>More than one sea state</h3>
+
+<ul>
+<li>A baked sea state's layout moved off the shared collection and onto the material, so two oceans can carry two different bakes. It used to be one a level, and the second ocean drew the first one's sea at its own scale while answering every query correctly</li>
+<li><code>SP_MobWater_Harbour</code>: a second, shorter sea state at a quarter of the resolution and half the loop, shipped so that two in a level is something the plugin's own content does rather than something a page claims</li>
+</ul>
+
 <h3>Known gaps</h3>
 
 <ul>
 <li>No Snell's window: looking up from deep water does not compress the world above into a bright disc</li>
 <li>A mesh outline reaches only as far as its window does, and four are carried at once</li>
-<li>One sea state a level, because its layout reaches the material through the shared collection</li>
 <li>The baked sea's normal is sampled at mip zero, because a frame atlas cannot carry a mip chain. Nothing was visible at range beside what the ocean's own detail normals were already doing, but a calmer look may find it</li>
 <li>Icons are placeholders</li>
 </ul>

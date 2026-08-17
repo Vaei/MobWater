@@ -94,14 +94,24 @@ Distance to the edge, and not the depth of the water, however much the second so
 <div data-shot="waves.spectrum"></div>
 
 <div class="tw"><table>
-<thead><tr><th><code>SP_MobWater_Ocean</code></th><th></th></tr></thead>
+<thead><tr><th></th><th><code>SP_MobWater_Ocean</code></th><th><code>SP_MobWater_Harbour</code></th></tr></thead>
 <tbody>
-<tr><td>Grid</td><td>64&sup2; texels over a 61 m tile, so a texel is 96 cm</td></tr>
-<tr><td>Loop</td><td>128 frames over 16 seconds</td></tr>
-<tr><td>Sea state</td><td>Phillips at 6 m/s, normalised to 35 cm rms - about 1.4 m significant wave height</td></tr>
-<tr><td>Weight</td><td>two 1056&times;528 atlases at 2.13 MB each, and 2.00 MB of query table</td></tr>
+<tr><td>Grid</td><td>64&sup2; texels over a 61 m tile, so a texel is 96 cm</td><td>32&sup2; over 31 m, so a texel is 96 cm again</td></tr>
+<tr><td>Loop</td><td>128 frames over 16 seconds</td><td>64 frames over 8 seconds</td></tr>
+<tr><td>Sea state</td><td>Phillips at 6 m/s, normalised to 35 cm rms - about 1.4 m significant wave height</td><td>Phillips at 4 m/s from a different quarter, the same 35 cm rms carried by shorter waves</td></tr>
+<tr><td>Weight</td><td>two 1056&times;528 atlases at 2.13 MB each, and 2.00 MB of query table</td><td>two 272&sup2; atlases at 0.28 MB each, and 0.25 MB of table</td></tr>
 </tbody>
 </table></div>
+
+<h3 id="two-seas">More than one a level</h3>
+
+<p>The layout an ocean reads - tile size, loop period, resolution, frame count and the three encode scales - is a <b>material parameter</b> rather than a collection one. A collection is one set of values for the whole world, so two oceans on two bakes would both have drawn whichever registered last: at the wrong tile size, at the wrong frame rate, and correct in every query. That is the shape of bug nobody reports, because nothing floats in the wrong place and nobody can say what is off.</p>
+
+<p>So an ocean with a sea state on it takes a material instance of its own and carries its own numbers, beside the atlases they describe - which had to live there anyway, a texture being the one thing a collection cannot hold. <b>Verify Contract</b> places two oceans on the two assets above and asserts each ended up describing its own.</p>
+
+<div class="note">
+What it costs is that an ocean stops batching with the other oceans. That is a trade a level has one or two of - a harbour on a short chop and the open sea beyond it on a long swell - and a level with one ocean pays nothing it did not pay before.
+</div>
 
 <h3>It loops exactly</h3>
 
@@ -125,7 +135,7 @@ Resolution and frame count are not independent. A wave's speed comes from its le
 
 <p>Not the texture. A dedicated server's texture is a GPU upload that may never have been made, so the asset carries the displacement a second time as a plain byte table, and that is what <code>GetWaterInfoAtLocation</code> reads. Two implementations of a Gerstner sum can be asserted equal; two solves of a Fourier transform in two languages cannot, and the networking story needs the same answer rather than nearly the same one.</p>
 
-<p><b>Verify Contract</b> renders the atlas through a probe and compares it against the table. The last run: <b>192 points across 3 instants, worst disagreement 0.05458 cm</b>. That is a filter weight and not a difference of maths - both sides read the same bytes, and what is left is that a GPU's bilinear weights are fixed point.</p>
+<p><b>Verify Contract</b> renders each atlas through a probe and compares it against that asset's table, over every sea state the plugin ships. The last run: <b>192 points across 3 instants, worst disagreement 0.05458 cm</b>. That is a filter weight and not a difference of maths - both sides read the same bytes, and what is left is that a GPU's bilinear weights are fixed point.</p>
 
 <div class="note">
 It found a real fault at ten times that figure, and the fault was the sampler rather than the maths. The frames sit side by side in one atlas, and the shared wrap sampler is anisotropic - so a surface seen at a grazing angle was averaging in the neighbouring frame, which on a travelling wave comes to nothing at all and read as the sea flattening towards the horizon. The taps name their mip level now, which is what makes a widening filter impossible.

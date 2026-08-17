@@ -66,6 +66,7 @@ REQUIRED = (
     '/MobWater/Materials/MPC_MobWater',
     '/MobWater/Gradients/GA_MobWater',
     '/MobWater/Spectra/SP_MobWater_Ocean',
+    '/MobWater/Spectra/SP_MobWater_Harbour',
 )
 
 

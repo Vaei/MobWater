@@ -463,7 +463,16 @@ def check_wave_parity():
 
 
 SPECTRUM_PROBE_PATH = '/MobWater/Materials/M_MobWaterSpectrumParity'
-SPECTRUM_ASSET_PATH = '/MobWater/Spectra/SP_MobWater_Ocean'
+
+# Every sea state the plugin ships, and the check runs over all of them.
+#
+# Named rather than listed out of the asset registry, which a commandlet has not scanned. Two of them
+# rather than one because a level may hold two, and a layout read from somewhere shared would have
+# agreed with itself perfectly while both oceans drew whichever registered last.
+SPECTRUM_ASSET_PATHS = (
+    '/MobWater/Spectra/SP_MobWater_Ocean',
+    '/MobWater/Spectra/SP_MobWater_Harbour',
+)
 
 # Wider than the wave probe's, and deliberately: it has to cross several tiles so a tile boundary and
 # the gutter that stands in for wrapping there are both inside the sample set.
@@ -490,14 +499,22 @@ SPECTRUM_TOLERANCE = 0.2
 
 
 def check_spectrum_parity():
-    """Reads the baked sea on the GPU and in the query, and compares them."""
-    spectrum = unreal.load_asset(SPECTRUM_ASSET_PATH)
+    """Every baked sea state, on the GPU and in the query."""
+    failures = []
+    for path in SPECTRUM_ASSET_PATHS:
+        failures += _check_one_spectrum(path)
+    return failures
+
+
+def _check_one_spectrum(spectrum_path):
+    """Reads one baked sea on the GPU and in the query, and compares them."""
+    spectrum = unreal.load_asset(spectrum_path)
     if spectrum is None:
-        return ['%s is missing. Run Water > Bake Ocean Spectrum.' % SPECTRUM_ASSET_PATH]
+        return ['%s is missing. Run Water > Bake Ocean Spectrum.' % spectrum_path]
 
     if spectrum.get_table_bytes() == 0:
         return ['%s has no query table, so a dedicated server would answer a flat sea while the '
-                'clients drew waves. Run Water > Bake Ocean Spectrum.' % SPECTRUM_ASSET_PATH]
+                'clients drew waves. Run Water > Bake Ocean Spectrum.' % spectrum_path]
 
     probe = unreal.load_asset(SPECTRUM_PROBE_PATH)
     if probe is None:
@@ -615,12 +632,11 @@ def check_spectrum_parity():
 
     if not moved:
         failures.append('the baked sea never displaced anything, so parity was compared against '
-                        'nothing. Check that %s has a table in it.' % SPECTRUM_ASSET_PATH)
+                        'nothing. Check that %s has a table in it.' % spectrum_path)
 
     if not failures:
-        _log('  ok  {0} points across {1} instants, worst disagreement {2:.5f}cm'
-             .format(compared, len(SPECTRUM_TIMES), worst))
-        _log('      (a filter weight, not a difference of maths - both sides read the same bytes)')
+        _log('  ok  {0}: {1} points across {2} instants, worst disagreement {3:.5f}cm'
+             .format(spectrum_path.rsplit('/', 1)[-1], compared, len(SPECTRUM_TIMES), worst))
 
     return failures
 
@@ -861,6 +877,89 @@ def check_exclusion_parity():
     return failures
 
 
+def check_two_sea_states():
+    """Two oceans on two bakes, each drawing its own.
+
+    The layout used to reach the material through the shared collection, which is one set of values
+    for the whole world - so a level with two oceans on two spectra had both of them drawing whichever
+    registered last, at the tile size and frame count of the other one's sea. The query was per body
+    and right all along, which is what made it hard to see: the water was drawn wrong and answered
+    correctly, so nothing floated in the wrong place and nobody could say what was off.
+
+    It is a layout on an instance now, so the assertion is that each body ended up with an instance of
+    its own carrying its own numbers - and, as much as anything, that the two are not the same numbers.
+    """
+    spectra = []
+    for path in SPECTRUM_ASSET_PATHS:
+        asset = unreal.load_asset(path)
+        if asset is None:
+            return ['%s is missing, so there is only one sea state to compare.' % path]
+        spectra.append((path, asset))
+
+    world = unreal.EditorLevelLibrary.get_editor_world()
+    if world is None:
+        return ['no editor world to place oceans in.']
+
+    failures = []
+    spawned = []
+
+    try:
+        found = []
+
+        for index, (path, spectrum) in enumerate(spectra):
+            actor = unreal.EditorLevelLibrary.spawn_actor_from_class(
+                unreal.MobWaterOcean, unreal.Vector(index * 200000.0, 400000.0, 0.0))
+            if actor is None:
+                return ['could not place an ocean in the editor world.']
+
+            spawned.append(actor)
+
+            water = actor.get_editor_property('water')
+            water.set_editor_property('spectrum', spectrum)
+
+            # Asked for explicitly. A body edited from script gets no PostEditChangeProperty, so
+            # nothing would otherwise tell it that what it draws with has to change.
+            water.apply_surface()
+
+            material = water.get_material(0)
+            if not isinstance(material, unreal.MaterialInstanceDynamic):
+                failures.append('%s did not take a material of its own, so it is drawing whatever the '
+                                'shared instance points at rather than %s.'
+                                % (actor.get_name(), path))
+                continue
+
+            # Off the instance itself. MaterialEditingLibrary refuses a dynamic instance outright -
+            # it takes a MaterialInstanceConstant, which is the asset on disk rather than the one a
+            # body made for itself, and a body making one for itself is the whole feature.
+            params = material.get_vector_parameter_value('SpectrumParams')
+
+            wanted = (spectrum.get_editor_property('tile_size'),
+                      spectrum.get_editor_property('loop_period'),
+                      float(spectrum.get_editor_property('resolution')),
+                      float(spectrum.get_editor_property('frames')))
+
+            got = (params.r, params.g, params.b, params.a)
+            found.append((path, got))
+
+            if any(abs(a - b) > 1e-3 for a, b in zip(wanted, got)):
+                failures.append('%s carries %s and its material says the sea is laid out as %s. It is '
+                                'reading one sea state at another one-s scale.'
+                                % (actor.get_name(), path, str(got)))
+            else:
+                _log('  ok  {0}: tile {1:.0f}, loop {2:.1f}s, {3:.0f} square over {4:.0f} frames'
+                     .format(path.rsplit('/', 1)[-1], got[0], got[1], got[2], got[3]))
+
+        if len(found) == 2 and found[0][1] == found[1][1]:
+            failures.append('both oceans ended up describing the same sea, so nothing here is per '
+                            'body after all.')
+    finally:
+        for actor in spawned:
+            if actor:
+                unreal.EditorLevelLibrary.destroy_actor(actor)
+
+    return failures
+
+
 def run():
     """Every check. Returns True when they all pass."""
     _log('Verifying contract')
@@ -887,6 +986,12 @@ def run():
         failures += check_spectrum_parity()
     else:
         _log('  --  skipped: needs the editor to render the probe.')
+
+    _log(' two oceans on two sea states, each drawing its own')
+    if unreal:
+        failures += check_two_sea_states()
+    else:
+        _log('  --  skipped: needs the editor to place oceans.')
 
     _log(' what the query answers against what the surface carves')
     if unreal:

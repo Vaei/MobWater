@@ -463,7 +463,13 @@ public:
 	 */
 	float GetShoreFade(const FVector& Location) const;
 
-	/** Pushes every property into custom primitive data and picks the mesh and material. */
+	/**
+	 * Rebuilds what this body draws: its mesh, its material, and everything that travels as data.
+	 *
+	 * Public and callable, because a body edited from script rather than from the details panel gets
+	 * no PostEditChangeProperty and would otherwise keep drawing what it was set up with.
+	 */
+	UFUNCTION(BlueprintCallable, CallInEditor, Category="Water")
 	void ApplySurface();
 
 	/**
@@ -512,9 +518,6 @@ protected:
 	 * batching with every other body.
 	 */
 	void ApplyTextureOverrides(UMaterialInterface* Shared);
-
-	/** Whether the shared material already points at this body's spectrum, so no override is needed. */
-	bool SharesSpectrumTextures(UMaterialInterface* Shared) const;
 
 	/** Only exists while a body carries a texture the shared material does not have. */
 	UPROPERTY(Transient)

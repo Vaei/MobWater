@@ -74,11 +74,6 @@ COLLECTION_VECTORS = COLLECTION_VECTORS + (
     + [('SunDirection', (0.0, 0.0, -1.0, 0.0)), ('SunColor', (1.0, 0.95, 0.85, 1.0))]
     # (Intensity, Rotation in turns, unused, unused). The sky the water reflects.
     + [('ReflectionParams', (1.0, 0.0, 0.0, 0.0))]
-    # How the baked sea state is laid out: (TileSize, LoopPeriod, Resolution, Frames) and
-    # (HorizontalScale, VerticalScale, NormalScale, AtlasColumns). Written by the subsystem when an
-    # ocean says which spectrum it is on. The scales default to zero, so a level with no ocean in it
-    # publishes nothing and the atlas contributes no displacement rather than a full swing of one.
-    + [('SpectrumParams', (1024.0, 1.0, 4.0, 2.0)), ('SpectrumScale', (0.0, 0.0, 0.0, 1.0))]
 )
 
 
@@ -577,9 +572,19 @@ def _spectrum_nodes(mat, collection, sample_xy, time, x, y):
     Returns (displacement, fold, normal). Four taps: two frames of displacement in the vertex shader
     and two of normal in the pixel one. Every one of them is Shared:Wrap, so the whole thing costs no
     sampler at all - what it costs is four texture reads and the arithmetic to place them.
+
+    The layout is a material parameter rather than a collection one, and that is what lets a level
+    hold more than one sea. A collection is one set of values for the whole world, so two oceans on
+    two bakes would both have drawn whichever registered last - and the atlases they read are texture
+    parameters, which a collection cannot hold at all, so the layout had to follow them onto the
+    instance or the two would have described each other's sea.
     """
-    params = g.collection_param(mat, collection, 'SpectrumParams', x - 2, y)
-    scale = g.collection_param(mat, collection, 'SpectrumScale', x - 2, y + 1)
+    params = g.vector_param4(mat, 'SpectrumParams', (1024.0, 1.0, 4.0, 2.0), 'Ocean', x - 2, y,
+                             'TileSize, LoopPeriod, Resolution, Frames. Written by the body.')
+    scale = g.vector_param4(mat, 'SpectrumScale', (0.0, 0.0, 0.0, 1.0), 'Ocean', x - 2, y + 1,
+                            'HorizontalScale, VerticalScale, NormalScale, AtlasColumns. The scales '
+                            'are zero by default, so an ocean with no sea state on it draws a flat '
+                            'atlas rather than a full swing of one.')
 
     uv = g.custom(mat, _CODE_SPECTRUM_UV, g.CMOT.CMOT_FLOAT4,
                   ['WorldXY', 'Time', 'Params', 'Scale'],
@@ -2460,6 +2465,12 @@ def build_exclusion_parity_probe(collection):
     return mat
 
 
+# A shorter, choppier sea than the open one, for water with land around it. Shipped as a second asset
+# rather than described in a page, because two sea states in a level is the sort of claim that is only
+# believable if the plugin's own content has two.
+HARBOUR_NAME = 'SP_MobWater_Harbour'
+
+
 def build_all():
     # Reloaded here rather than left to the caller: mob_water_graph holds the reference, so a stamp
     # edited during a session would otherwise keep writing the version it was imported with.
@@ -2502,6 +2513,14 @@ def build_all():
     if g.existing(mob_water_spectrum.SPECTRUM_ROOT + '/' + mob_water_spectrum.ASSET_NAME) is None:
         g.log('  no baked sea state; solving one')
         mob_water_spectrum.build()
+
+    # A second sea state, small and deliberately unlike the first in every number that describes its
+    # layout. It is what makes a level holding two oceans on two bakes a thing that exists rather than
+    # a thing the code allows, and it is what the parity check runs its whole comparison over twice.
+    if g.existing(mob_water_spectrum.SPECTRUM_ROOT + '/' + HARBOUR_NAME) is None:
+        g.log('  no second sea state; solving a short one')
+        mob_water_spectrum.build(resolution=32, frames=64, columns=8, tile=3072.0, period=8.0,
+                                 wind_speed=400.0, wind_direction=200.0, name=HARBOUR_NAME)
 
     master = build_master_material()
     g.log('  master %s' % master.get_path_name())

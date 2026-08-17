@@ -244,20 +244,15 @@ void UMobWaterComponent::ApplySurface()
 		}
 	}
 
-	// The material reads the sea state's layout out of the collection, and the collection is the
-	// world's rather than this body's, so the body has to say. Told on every apply rather than on
-	// register, because a level designer changing the spectrum has to see it without a restart.
-	if (Shape == EMobWaterShape::Ocean)
-	{
-		if (UMobWaterSubsystem* Subsystem = UMobWaterSubsystem::Get(this))
-		{
-			Subsystem->SetSpectrum(GetSpectrum());
-		}
-	}
-
 	if (UMaterialInterface* Material = UMobWaterSettings::GetMaterial(Shape, WantedVariant()))
 	{
-		if (GetMaterial(0) != Material)
+		// A body already drawing an instance of this one keeps it. Setting the shared material back
+		// here would take a body's own instance off it on every apply, and ApplyTextureOverrides
+		// would then go on writing parameters into a material nothing was drawing - so the override
+		// would work once and quietly stop the next time anything touched the body.
+		const UMaterialInstanceDynamic* Own = Cast<UMaterialInstanceDynamic>(GetMaterial(0));
+
+		if (GetMaterial(0) != Material && !(Own && Own->Parent == Material))
 		{
 			SetMaterial(0, Material);
 		}
@@ -340,11 +335,14 @@ void UMobWaterComponent::ApplyTextureOverrides(UMaterialInterface* Shared)
 {
 	const bool bWantsFoam = bFoam && bFoamTexture && FoamTexture != nullptr;
 
-	// Only when the spectrum is not the one the shared material already carries. The instances ship
-	// pointing at the atlases the generator baked, so an ocean that uses those needs no material of
-	// its own - and an ocean is the one body a project is most likely to have several of.
+	// Every ocean that has a sea state, whether or not it is the one the shared instance ships
+	// pointing at. A spectrum is two atlases and eight numbers describing how they are laid out, and
+	// neither can be per-primitive data - a texture is not a number and the primitive data is full -
+	// so both live on the instance, and a body carrying its own has to carry all of it. That is what
+	// lets a level hold a harbour and an open sea on two different bakes; what it costs is that an
+	// ocean stops batching with the others, which is a trade a project has one or two of.
 	const UMobWaterSpectrum* Sea = GetSpectrum();
-	const bool bWantsSpectrum = Sea && Sea->IsUsable() && !SharesSpectrumTextures(Shared);
+	const bool bWantsSpectrum = Sea && Sea->IsUsable();
 
 	if (!bWantsFoam && !bWantsSpectrum)
 	{
@@ -375,24 +373,22 @@ void UMobWaterComponent::ApplyTextureOverrides(UMaterialInterface* Shared)
 	{
 		OverrideMaterial->SetTextureParameterValue(TEXT("SpectrumDisplacement"), Sea->DisplacementTexture);
 		OverrideMaterial->SetTextureParameterValue(TEXT("SpectrumNormal"), Sea->NormalTexture);
+
+		// Written beside the atlases rather than anywhere else, because they are one thing: the
+		// numbers say how to read those bytes, and a body holding one without the other reads a real
+		// sea at the wrong scale, which looks like the ocean being badly tuned.
+		OverrideMaterial->SetVectorParameterValue(TEXT("SpectrumParams"), FLinearColor(
+			Sea->TileSize,
+			Sea->LoopPeriod,
+			static_cast<float>(Sea->Resolution),
+			static_cast<float>(Sea->Frames)));
+
+		OverrideMaterial->SetVectorParameterValue(TEXT("SpectrumScale"), FLinearColor(
+			Sea->HorizontalScale,
+			Sea->VerticalScale,
+			Sea->NormalScale,
+			static_cast<float>(FMath::Max(Sea->AtlasColumns, 1))));
 	}
-}
-
-bool UMobWaterComponent::SharesSpectrumTextures(UMaterialInterface* Shared) const
-{
-	const UMobWaterSpectrum* Sea = GetSpectrum();
-	if (!Shared || !Sea)
-	{
-		return false;
-	}
-
-	UTexture* Displacement = nullptr;
-	UTexture* Normal = nullptr;
-
-	Shared->GetTextureParameterValue(TEXT("SpectrumDisplacement"), Displacement);
-	Shared->GetTextureParameterValue(TEXT("SpectrumNormal"), Normal);
-
-	return Displacement == Sea->DisplacementTexture && Normal == Sea->NormalTexture;
 }
 
 void UMobWaterComponent::WriteWaterData(int32 Index, float Value)
