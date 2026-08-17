@@ -81,7 +81,27 @@ Several of these read as compromises on paper and are not. The surface keeps a t
 
 <h2>The gradient fork</h2>
 
-<p><code>MobWaterGradientCoord</code> exists in the shader library and turns the water column into a 0-1 coordinate a gradient ramp can be indexed by, for hard bands in any palette from the same tap. It is <b>written and not wired up</b>: the presets above get their look from absorption, opacity and foam instead. <a href="https://github.com/Vaei/GradientTool">GradientTool</a> is the intended companion for it.</p>
+<p>Tick <b>Gradient Color</b> on a body and its colour stops coming from an absorption between two colours and comes from a ramp instead, indexed by the same water column. The ramp is a row of <code>GA_MobWater</code>, a <a href="https://github.com/Vaei/GradientTool">GradientTool</a> asset - open it, drag a stop, and the water changes.</p>
+
+<p>This is what lets a toon surface have a real band. An absorption is an exponential, so it is smooth at every setting there is; a ramp holds whatever is painted into it, hard steps included.</p>
+
+<div class="tw"><table class="free">
+<thead><tr><th>Row</th><th></th></tr></thead>
+<tbody>
+<tr><td>0 Stylized</td><td>the palette the preset above grades to by absorption, as a ramp. Switching a stylized body over changes how the colour steps, not which colours it steps between</td></tr>
+<tr><td>1 Toon</td><td>three colours and nothing between them</td></tr>
+<tr><td>2 Tropical</td><td>sand showing through the first hand's depth, then the drop-off</td></tr>
+<tr><td>3 Swamp</td><td>standing water over rotting ground, nearly opaque by the second stop</td></tr>
+</tbody>
+</table></div>
+
+<p><b>Gradient Row</b> is per body, so one material instance covers a jade pool and a swamp. The atlas itself is per instance - a project bringing its own palettes duplicates <code>GA_MobWater</code>, points a child instance's <b>Color Gradient</b> at the copy, and leaves the shipped one alone, because <b>Water &rarr; Generate Materials</b> rewrites it.</p>
+
+<p>One tap, on depth that was already recovered, and one sampler shared with every other tap in the material. It is a <a href="performance.html">compiled variant</a>: a body grading by absorption carries no ramp at all.</p>
+
+<div class="note">
+<b>Fade Depth</b> means the same thing to both forks - the column at which the far end is reached - so a body can be switched between them without its depths being retuned. The presets ship on absorption, because that is what they were tuned against; the ramp is a tick box away and each preset already names the row that matches it.
+</div>
 
 <h2>Making your own</h2>
 

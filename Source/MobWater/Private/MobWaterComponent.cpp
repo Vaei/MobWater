@@ -103,6 +103,10 @@ int32 UMobWaterComponent::WantedVariant() const
 	{
 		Variant |= MobWaterVariant::Ripples;
 	}
+	if (bGradientColor)
+	{
+		Variant |= MobWaterVariant::Gradient;
+	}
 
 	return Variant;
 }
@@ -119,6 +123,8 @@ void UMobWaterComponent::ApplyLookPreset()
 		return;
 	}
 
+	bGradientColor = LookPreset->bGradientColor;
+	GradientRow = LookPreset->GradientRow;
 	ShallowColor = LookPreset->ShallowColor;
 	DeepColor = LookPreset->DeepColor;
 	FadeDepth = LookPreset->FadeDepth;
@@ -206,7 +212,14 @@ void UMobWaterComponent::ApplySurface()
 		}
 	}
 
-	WriteWaterData3(MobWaterData::ShallowColor, ShallowColor);
+	if (bGradientColor)
+	{
+		WriteWaterData(MobWaterData::GradientRow, static_cast<float>(GradientRow));
+	}
+	else
+	{
+		WriteWaterData3(MobWaterData::ShallowColor, ShallowColor);
+	}
 	WriteWaterData3(MobWaterData::DeepColor, DeepColor);
 	WriteWaterData(MobWaterData::FadeDepth, FadeDepth);
 	WriteWaterData(MobWaterData::ClarityDepth, ClarityDepth);

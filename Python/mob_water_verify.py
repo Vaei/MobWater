@@ -47,6 +47,9 @@ TYPES = os.path.join(PLUGIN_ROOT, 'Source', 'MobWater', 'Public', 'MobWaterTypes
 # a typo in the header should fail, not redefine the contract.
 EXPECTED_INDICES = {
     'ShallowColor': 0,
+    # The same float. Only one of the two forks is ever compiled, so the colours' six floats are free
+    # whenever the row is wanted.
+    'GradientRow': 0,
     'DeepColor': 3,
     'FadeDepth': 6,
     'ClarityDepth': 7,

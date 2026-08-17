@@ -59,6 +59,10 @@ FString MobWaterVariant::Suffix(int32 Variant)
 	{
 		Out += TEXT("_FoamTexture");
 	}
+	if (Variant & Gradient)
+	{
+		Out += TEXT("_Gradient");
+	}
 
 	return Out;
 }

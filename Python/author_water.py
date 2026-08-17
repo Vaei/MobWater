@@ -77,6 +77,115 @@ def build_parameter_collection():
 
 
 # ---------------------------------------------------------------------------
+# The colour ramps
+# ---------------------------------------------------------------------------
+
+GRAD_ROOT = g.ROOT + '/Gradients'
+GRADIENT_ASSET = GRAD_ROOT + '/GA_MobWater'
+
+# What the Gradient asset bakes itself into. Exposed as a texture parameter, so a project points an
+# instance at an atlas of its own rather than editing the one that ships.
+GRADIENT_TEXTURE = GRAD_ROOT + '/T_GA_MobWater'
+
+GI = unreal.GradientInterp
+GB = unreal.GradientBlendSpace
+
+# Row order is what GradientRow indexes, and a material instance holds the number rather than the
+# name, so reordering these repaints every body of water that was set to one of the later rows.
+#
+# Each row is the water read downwards: 0 is the surface over nothing, 1 is the surface over as much
+# water as Fade Depth says a body holds. That is the same coordinate the absorption fork grades
+# along, which is what lets a body switch between them without retuning its depths.
+#
+# OkLab, because a ramp from turquoise to deep blue passes through the midpoint where linear RGB goes
+# grey - and a grey band across the middle of a pool is the one artefact nobody would author.
+GRADIENT_ROWS = [
+    # The palette WL_MobWater_Stylized grades to by absorption, as a ramp. Switching a stylized body
+    # to the gradient should change how the colour steps, not which colours it steps between.
+    ('Stylized', GB.OK_LAB, [
+        (0.00, (0.20, 0.85, 0.80), GI.LINEAR),
+        (0.45, (0.09, 0.62, 0.79), GI.EASE),
+        (1.00, (0.02, 0.35, 0.70), GI.EASE),
+    ]),
+    # Three colours and nothing between them. Constant holds the previous stop and jumps at this one,
+    # so the band edges land exactly where the stops are rather than where a blend happens to cross.
+    ('Toon', GB.OK_LAB, [
+        (0.00, (0.11, 0.45, 0.74), GI.LINEAR),
+        (0.34, (0.06, 0.26, 0.55), GI.CONSTANT),
+        (0.67, (0.03, 0.14, 0.38), GI.CONSTANT),
+        (1.00, (0.02, 0.09, 0.26), GI.CONSTANT),
+    ]),
+    # Shallow tropical water: sand showing through the first hand's depth, then the drop-off.
+    ('Tropical', GB.OK_LAB, [
+        (0.00, (0.62, 0.80, 0.72), GI.LINEAR),
+        (0.20, (0.24, 0.78, 0.76), GI.EASE),
+        (0.60, (0.03, 0.42, 0.66), GI.EASE),
+        (1.00, (0.01, 0.12, 0.30), GI.EASE),
+    ]),
+    # Standing water over rotting ground. Nearly opaque by the second stop, which is the read: a
+    # swamp is not clear water that happens to be green.
+    ('Swamp', GB.OK_LAB, [
+        (0.00, (0.28, 0.32, 0.16), GI.LINEAR),
+        (0.30, (0.13, 0.18, 0.09), GI.EASE),
+        (1.00, (0.03, 0.05, 0.03), GI.EASE),
+    ]),
+]
+
+
+def build_gradients():
+    """GA_MobWater, the palettes the gradient fork reads.
+
+    Held by GradientTool rather than baked here, because a palette that cannot be edited without
+    re-running a generator is not a palette. The asset bakes its own texture on every edit, so a
+    project can open it, drag a stop, and see the water change.
+
+    Rebuilt in place like everything else here, so a palette edited in this asset is a palette the
+    next generate overwrites. A project's own colours belong in a copy of it, with the instance's
+    Color Gradient pointed at the copy.
+    """
+    asset = g.existing(GRADIENT_ASSET)
+    if asset is None:
+        asset = g.tools().create_asset('GA_MobWater', GRAD_ROOT, unreal.GradientAsset,
+                                       unreal.GradientAssetFactory())
+
+    layers = []
+    for name, blend, stops in GRADIENT_ROWS:
+        layer = unreal.GradientLayer()
+        layer.set_editor_property('name', name)
+        layer.set_editor_property('blend_space', blend)
+
+        built = []
+        for time, rgb, interp in stops:
+            stop = unreal.GradientStop()
+            stop.set_editor_property('time', float(time))
+            stop.set_editor_property('color', unreal.LinearColor(rgb[0], rgb[1], rgb[2], 1.0))
+            stop.set_editor_property('interp', interp)
+            built.append(stop)
+
+        layer.set_editor_property('stops', built)
+        layers.append(layer)
+
+    asset.set_editor_property('width', 256)
+
+    # LDR, not HDR. Nothing in a water palette belongs past white, and a quarter of the memory of an
+    # RGBA16F atlas is the difference between a ramp costing nothing and costing enough to mention.
+    asset.set_editor_property('format', unreal.GradientTextureFormat.LDR)
+
+    # ALWAYS, because the bake runs off the property change notification and the default mode does
+    # not raise one - the rows would be written and the texture would still be whatever it was.
+    asset.set_editor_property('gradients', layers, unreal.PropertyAccessChangeNotifyMode.ALWAYS)
+    g.save(asset)
+
+    texture = asset.get_editor_property('texture')
+    if texture is None:
+        raise RuntimeError('GA_MobWater did not bake a texture')
+
+    g.save(texture)
+
+    return [name for name, _, _ in GRADIENT_ROWS]
+
+
+# ---------------------------------------------------------------------------
 # The master material
 # ---------------------------------------------------------------------------
 
@@ -93,6 +202,10 @@ RIPPLE_FIELD_SIZE = 256
 # past the end is discarded without a word. Anything new pairs into an existing slot.
 CPD_SHALLOW_COLOR = 0
 CPD_DEEP_COLOR = 3
+
+# The gradient fork replaces both colours, so its row rides in the first of the six floats they would
+# have taken. Only one of the two is ever compiled, so the slot is never wanted twice.
+CPD_GRADIENT_ROW = 0
 CPD_FADE_DEPTH = 6
 CPD_CLARITY_DEPTH = 7
 CPD_SHORE_FOAM_DEPTH = 8
@@ -241,6 +354,10 @@ return float3(Fold, Fold, Fold);
 
 _CODE_COLOR = """
 return MobWaterAbsorb(ShallowColor, DeepColor, Column, FadeDepth);
+"""
+
+_CODE_GRADIENT_COORD = """
+return MobWaterGradientCoord(Column, FadeDepth);
 """
 
 _CODE_OPACITY = """
@@ -490,6 +607,56 @@ def build_master_material():
     g.link(deep, '', base_color, 'DeepColor')
     g.link(column, '', base_color, 'Column')
     g.link(fade_depth, '', base_color, 'FadeDepth')
+
+    # --- or the same depth, as a coordinate into a ramp ----------------------
+    #
+    # Absorption is an exponential, so it can only ever be smooth. A ramp holds whatever is painted
+    # into it, hard steps included, which is the whole difference between water that grades and water
+    # that is drawn - and it is one tap either way, on the depth that was already recovered.
+    gradient_coord = g.custom(mat, _CODE_GRADIENT_COORD, g.CMOT.CMOT_FLOAT1,
+                              ['Column', 'FadeDepth'], [], -4, 45,
+                              'How far down the ramp this much water is.', includes=INCLUDES)
+    g.link(column, '', gradient_coord, 'Column')
+    g.link(fade_depth, '', gradient_coord, 'FadeDepth')
+
+    atlas = g.expr(mat, unreal.MaterialExpressionTextureObjectParameter, -4, 46)
+    atlas.set_editor_property('parameter_name', 'ColorGradient')
+    atlas.set_editor_property('texture', g.existing(GRADIENT_TEXTURE))
+    atlas.set_editor_property('sampler_type', unreal.MaterialSamplerType.SAMPLERTYPE_LINEAR_COLOR)
+    atlas.set_editor_property('group', 'Colour')
+    atlas.set_editor_property('desc', 'The palettes this water can be graded by, one to a row. '
+                                      'Point an instance at an atlas of its own to bring more.')
+
+    gradient_row = g.cpd_scalar(mat, 'GradientRow', 0.0, CPD_GRADIENT_ROW, 'Colour', -4, 47,
+                                'Which row of the atlas this body reads. Whole numbers only: a '
+                                'fraction lands between two rows and the filter blends them. %s.'
+                                % ', '.join('%d %s' % (i, n)
+                                            for i, (n, _, _) in enumerate(GRADIENT_ROWS)))
+
+    # The row is resolved at compile time when nothing is connected, which would bake this plugin's
+    # own layout into the shader. Driven from a parameter instead, a project atlas only has to say
+    # where its rows are rather than match an order it did not choose.
+    ramp_uv = g.expr(mat, unreal.MaterialExpressionGradientCoordinate, -3, 46)
+    ramp_uv.set_editor_property('gradient', g.existing(GRADIENT_ASSET))
+    ramp_uv.set_editor_property('gradient_name', GRADIENT_ROWS[0][0])
+    g.link(gradient_coord, '', ramp_uv, 'Time')
+    g.link(atlas, '', ramp_uv, 'Atlas')
+    g.link(gradient_row, '', ramp_uv, 'Row')
+
+    # Sampled here rather than by a Sample Gradient node, which asks for the texture's own sampler
+    # and spends one of the sixteen. Both this and the coordinate read the one texture object, so an
+    # instance swapping the atlas cannot leave the row arithmetic addressing the old one's height.
+    ramp = g.expr(mat, unreal.MaterialExpressionTextureSample, -2, 46)
+    ramp.set_editor_property('sampler_type', unreal.MaterialSamplerType.SAMPLERTYPE_LINEAR_COLOR)
+    ramp.set_editor_property('sampler_source', unreal.SamplerSourceMode.SSM_WRAP_WORLD_GROUP_SETTINGS)
+    g.link(ramp_uv, 'UV', ramp, 'UVs')
+    g.link(atlas, '', ramp, 'Tex')
+
+    b_gradient = g.static_bool(mat, 'bGradientColor', False, 'Colour', -2, 47, 12,
+                               'Grades the water along a ramp rather than between two colours. Off, '
+                               'the atlas is not read and the ramp arithmetic leaves the shader.')
+
+    base_color = g.static_switch(mat, b_gradient, ramp, '', base_color, '', 0, 46)
 
     min_opacity = g.cpd_scalar(mat, 'MinOpacity', 0.0, CPD_MIN_OPACITY, 'Colour', -5, 51,
                                'How opaque the water is regardless of how much of it there is. 0 '
@@ -1174,6 +1341,11 @@ LOOK_PRESETS = [
         'detail_scroll_speed': 0.6,
         'macro_strength': 1.4,
         'edge_foam_width': 0.10,
+        # Absorption, with the ramp waiting on the row that matches it. Both looks were tuned against
+        # the two colours, so a preset that arrived already switched would be a look nobody chose;
+        # ticking Gradient Color on a body is the whole change, and it lands on the same palette.
+        'gradient_color': False,
+        'gradient_row': 0,
         # Bright and saturated, and shallow water that is almost not there. The read of stylized
         # water is that you can see the bed through it and the colour is in the depth, not on the
         # surface - so the shallow colour is nearly the deep one, and clarity does the work.
@@ -1220,6 +1392,10 @@ LOOK_PRESETS = [
     # Several read as compromises on paper and are not: the surface keeps a trace of detail and half
     # its lighting, because fully flat and fully emitted lost the water's shape entirely.
     ('WL_MobWater_Toon', {
+        # The look the ramp exists for: the Toon row is three colours with nothing between them,
+        # which is a band an absorption cannot produce at any setting.
+        'gradient_color': False,
+        'gradient_row': 1,
         'shallow_color': (0.06, 0.26, 0.55, 1.0),
         'deep_color': (0.03, 0.14, 0.38, 1.0),
         'fade_depth': 90.0,
@@ -1264,6 +1440,10 @@ LOOK_PRESETS = [
         'waves': 'WP_MobWater_Pond',
     }),
     ('WL_MobWater_Realistic', {
+        # Absorption, and not a candidate for the ramp. Water losing red first and blue last is what
+        # the exponential is; a painted ramp would have to reproduce it stop by stop to break even.
+        'gradient_color': False,
+        'gradient_row': 0,
         'foam_band_separation': 0.0,
         'unlit': 0.0,
         'glint_density': 1.0,
@@ -1320,6 +1500,8 @@ def build_look_presets():
             factory.set_editor_property('data_asset_class', unreal.MobWaterLookPreset)
             asset = g.tools().create_asset(name, LOOK_ROOT, unreal.MobWaterLookPreset, factory)
 
+        asset.set_editor_property('gradient_color', values['gradient_color'])
+        asset.set_editor_property('gradient_row', values['gradient_row'])
         asset.set_editor_property('shallow_color', unreal.LinearColor(*values['shallow_color']))
         asset.set_editor_property('deep_color', unreal.LinearColor(*values['deep_color']))
         asset.set_editor_property('fade_depth', values['fade_depth'])
@@ -1409,8 +1591,9 @@ VARIANT_RIPPLES = 1 << 0
 VARIANT_FOAM = 1 << 1
 VARIANT_REFRACTION = 1 << 2
 VARIANT_FOAM_TEXTURE = 1 << 3
+VARIANT_GRADIENT = 1 << 4
 
-VARIANT_NUM = 16
+VARIANT_NUM = 32
 
 # Every combination that can actually be asked for. Foam texture without foam is not one of them, so
 # those four are never generated - an instance nothing can select is a shader nobody compiles and a
@@ -1430,6 +1613,8 @@ def _variant_suffix(variant):
         out += '_Refraction'
     if variant & VARIANT_FOAM_TEXTURE:
         out += '_FoamTexture'
+    if variant & VARIANT_GRADIENT:
+        out += '_Gradient'
     return out
 
 
@@ -1453,6 +1638,8 @@ def build_material_instances(master):
                 instance, 'bRipples', bool(variant & VARIANT_RIPPLES))
             g.MEL.set_material_instance_static_switch_parameter_value(
                 instance, 'bFoamTexture', bool(variant & VARIANT_FOAM_TEXTURE))
+            g.MEL.set_material_instance_static_switch_parameter_value(
+                instance, 'bGradientColor', bool(variant & VARIANT_GRADIENT))
 
             g.MEL.update_material_instance(instance)
             g.save(instance)
@@ -1669,6 +1856,11 @@ def build_all():
     # After the wave presets, which they point at.
     for look in build_look_presets():
         g.log('  look %s' % look)
+
+    # Before the master, which names the baked atlas as a parameter default and the asset itself on
+    # the coordinate node.
+    for row in build_gradients():
+        g.log('  gradient %s' % row)
 
     master = build_master_material()
     g.log('  master %s' % master.get_path_name())

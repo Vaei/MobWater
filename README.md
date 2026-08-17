@@ -59,7 +59,7 @@ All of it costs one translucent plane, and runs anywhere - including the mobile 
 
 ### Any style, from one material
 
-- **Absorption or a gradient.** Beer-Lambert against depth for hyperreal, or a ramp indexed by depth for stylized - hard bands, any palette, from the same tap and the same instruction budget
+- **Absorption or a gradient.** Beer-Lambert against depth for hyperreal, or a ramp indexed by depth for stylized - hard bands, any palette, from the same tap and the same instruction budget. The ramps are a [GradientTool](https://github.com/Vaei/GradientTool) asset, so a palette is dragged rather than recompiled
 - **Foam takes the same fork** - noise-broken and dithered, or stepped to hard contours
 - **Every parameter is per body**, so a jade temple pool and a grey harbour are the same material and share every permutation
 
@@ -100,7 +100,10 @@ All of it costs one translucent plane, and runs anywhere - including the mobile 
 ```
 cd YourProject/Plugins
 git clone git@github.com:Vaei/MobWater.git
+git clone git@github.com:Vaei/GradientTool.git
 ```
+
+[GradientTool](https://github.com/Vaei/GradientTool) is required - it holds the colour ramps the stylized fork grades along. `MobWater.uplugin` names it, so Unreal enables it for you and will not load MobWater without it.
 
 1. Build, enable the plugin, restart.
 1. **Water → Generate Materials.**
@@ -124,7 +127,7 @@ Full walkthrough: [Install](https://vaei.github.io/MobWater/install.html).
   * Local lights for a renderer that has none, and fog to put them in
 * [MobFort Plugin](https://github.com/Vaei/MobFort)
   * Stylized unlit character masters, so the characters standing in this water read the same anywhere
-* [Gradient Tool Plugin](https://github.com/Vaei/GradientTool)
+* [Gradient Tool Plugin](https://github.com/Vaei/GradientTool) - **required**
   * Stylized water is a gradient indexed by depth, and a gradient you cannot edit without recompiling is not a gradient
 * [Non-Destructive Synced Net Clock](https://vorixo.github.io/devtricks/non-destructive-synced-net-clock/)
   * What to bind to the time source. A clock corrected by rate rather than by snapping, which is the difference between waves that stay in phase and waves that jump every correction

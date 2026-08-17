@@ -112,9 +112,10 @@ UMaterialInterface* UMobWaterSettings::GetMaterial(EMobWaterShape Shape, int32 V
 	// Drop one feature at a time rather than falling straight to the plain material, so a project that
 	// has generated most of the set gets the nearest thing to what it asked for. The foam's own
 	// texture goes first because losing it leaves foam that is still foam, then refraction, which is
-	// the one a platform may have refused to compile at all, then foam, then ripples.
+	// the one a platform may have refused to compile at all, then the gradient, which costs the body
+	// its palette and leaves it water, then foam, then ripples.
 	static constexpr int32 DropOrder[] = { MobWaterVariant::FoamTexture, MobWaterVariant::Refraction,
-		MobWaterVariant::Foam, MobWaterVariant::Ripples };
+		MobWaterVariant::Gradient, MobWaterVariant::Foam, MobWaterVariant::Ripples };
 	static constexpr int32 NumDrops = static_cast<int32>(UE_ARRAY_COUNT(DropOrder));
 
 	int32 Wanted = Variant;

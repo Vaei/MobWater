@@ -22,10 +22,21 @@ class MOBWATER_API UMobWaterLookPreset : public UDataAsset
 	GENERATED_BODY()
 
 public:
+	/**
+	 * The colour comes from a gradient ramp indexed by depth rather than from an absorption between
+	 * two colours. A ramp can hold hard steps; an exponential cannot.
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Colour")
+	bool bGradientColor = false;
+
+	/** Which palette in the atlas. GA_MobWater ships 0 Stylized, 1 Toon, 2 Tropical, 3 Swamp. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Colour", meta=(EditCondition="bGradientColor", ClampMin="0"))
+	int32 GradientRow = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Colour", meta=(EditCondition="!bGradientColor"))
 	FLinearColor ShallowColor = FLinearColor(0.18f, 0.42f, 0.42f, 1.f);
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Colour")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Colour", meta=(EditCondition="!bGradientColor"))
 	FLinearColor DeepColor = FLinearColor(0.01f, 0.06f, 0.11f, 1.f);
 
 	/** The water column over which the colour reaches the deep one. */

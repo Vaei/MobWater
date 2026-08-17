@@ -31,6 +31,14 @@ git clone git@github.com:Vaei/MobWater.git</code></pre>
 
 <p>Then regenerate project files and build. It carries a runtime and an editor C++ module, so the project has to be a C++ project - if yours is Blueprint only, add any C++ class once and Unreal converts it.</p>
 
+<h3>Required</h3>
+
+<div class="tw"><table class="free">
+<tr><td><a href="https://github.com/Vaei/GradientTool">GradientTool</a></td><td>the colour ramps the <a href="stylized.html#the-gradient-fork">gradient fork</a> reads, and the editor to draw them in. A palette that cannot be edited without re-running a generator is not a palette, so the ramps are its asset rather than a baked texture<br><code>git clone git@github.com:Vaei/GradientTool.git</code></td></tr>
+</table></div>
+
+<p>Clone it into <code>Plugins</code> alongside this one. <code>MobWater.uplugin</code> names it as a dependency, so Unreal enables it for you and will refuse to load MobWater without it.</p>
+
 <h3>Companions</h3>
 
 <p>None is required.</p>
@@ -59,7 +67,7 @@ Verify scene depth in the translucent pass on the platform you are shipping to, 
 
 <h2>Set it up</h2>
 
-<p>Enable the plugin, restart, then <b>Water &rarr; Set Up Water</b> on the level editor toolbar. It authors the parameter collection, the master, its thirty nine instances, the surface meshes, the tiling textures, the wave presets and the look presets, points the project settings at all of them, and refreshes any water already standing in the level.</p>
+<p>Enable the plugin, restart, then <b>Water &rarr; Set Up Water</b> on the level editor toolbar. It authors the parameter collection, the master, its seventy five instances, the surface meshes, the tiling textures, the colour ramps, the wave presets and the look presets, points the project settings at all of them, and refreshes any water already standing in the level.</p>
 
 <div data-shots="install.menu, install.setup"></div>
 

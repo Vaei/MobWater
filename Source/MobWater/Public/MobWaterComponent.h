@@ -83,13 +83,36 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Waves", meta=(ClampMin="0.0"))
 	float WaveAmplitude = 1.f;
 
+	/**
+	 * The colour comes from a gradient ramp indexed by depth rather than from an absorption between
+	 * two colours.
+	 *
+	 * A ramp holds a whole palette and can hold hard steps in it, which is the difference between
+	 * water that grades and water that is painted: absorption is an exponential and can only ever be
+	 * smooth, so a toon surface built out of it is a surface fighting its own maths.
+	 *
+	 * A compiled variant: a body grading by absorption carries no ramp tap at all.
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Colour")
+	bool bGradientColor = false;
+
+	/**
+	 * Which palette in the atlas this body is graded by.
+	 *
+	 * The rows GA_MobWater ships are 0 Stylized, 1 Toon, 2 Tropical, 3 Swamp. A project bringing more
+	 * points the material instance's Color Gradient at an atlas of its own; the row is per body, so
+	 * one instance still covers a jade pool and a swamp.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Colour", meta=(EditCondition="bGradientColor", ClampMin="0"))
+	int32 GradientRow = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Colour", meta=(EditCondition="!bGradientColor"))
 	FLinearColor ShallowColor = FLinearColor(0.18f, 0.42f, 0.42f, 1.f);
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Colour")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Colour", meta=(EditCondition="!bGradientColor"))
 	FLinearColor DeepColor = FLinearColor(0.01f, 0.06f, 0.11f, 1.f);
 
-	/** The water column over which the colour reaches the deep one. */
+	/** The water column over which the colour reaches the deep one, or the far end of the ramp. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Colour", meta=(ClampMin="1.0", ForceUnits="cm"))
 	float FadeDepth = 300.f;
 

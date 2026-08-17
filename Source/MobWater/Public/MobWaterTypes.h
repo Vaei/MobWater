@@ -98,7 +98,17 @@ namespace MobWaterVariant
 	 */
 	static constexpr int32 FoamTexture = 1 << 3;
 
-	static constexpr int32 Num = 16;
+	/**
+	 * The water's colour comes from a gradient ramp indexed by depth rather than from an absorption
+	 * between two colours.
+	 *
+	 * A permutation rather than a blend between the two, because the ramp is a texture read: a body
+	 * grading by absorption would carry the tap and the coordinate for a palette it never samples,
+	 * and per instance data is not something the compiler can fold away.
+	 */
+	static constexpr int32 Gradient = 1 << 4;
+
+	static constexpr int32 Num = 32;
 
 	/** The name suffix the generator gives this combination. */
 	MOBWATER_API FString Suffix(int32 Variant);
@@ -139,6 +149,15 @@ namespace MobWaterData
 {
 	/** Linear RGB of the water at its shallowest. Occupies 0, 1 and 2. */
 	static constexpr int32 ShallowColor = 0;
+
+	/**
+	 * Which row of the colour atlas a gradient-graded body reads.
+	 *
+	 * The same float as ShallowColor's red, because the gradient fork replaces both colours outright:
+	 * only one of the two is ever compiled, so the six floats they would take are free whenever this
+	 * one is wanted. The component writes whichever the body is actually using.
+	 */
+	static constexpr int32 GradientRow = 0;
 
 	/** Linear RGB the water grades to at FadeDepth. Occupies 3, 4 and 5. */
 	static constexpr int32 DeepColor = 3;

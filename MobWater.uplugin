@@ -28,6 +28,10 @@
 	],
 	"Plugins": [
 		{
+			"Name": "GradientTool",
+			"Enabled": true
+		},
+		{
 			"Name": "PythonScriptPlugin",
 			"Enabled": true
 		}

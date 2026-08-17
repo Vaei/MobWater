@@ -59,6 +59,7 @@ REQUIRED = (
     '/MobWater/Materials/M_MobWaterRippleCopy',
     '/MobWater/Materials/M_MobWaterRippleStamp',
     '/MobWater/Materials/MPC_MobWater',
+    '/MobWater/Gradients/GA_MobWater',
 )
 
 

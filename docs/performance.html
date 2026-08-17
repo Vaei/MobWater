@@ -51,7 +51,7 @@ The vertex count is high because the wave sum happens there: eight Gerstner wave
 
 <h2>Permutations</h2>
 
-<p><b>39 instances</b>: thirteen per shape across three shapes.</p>
+<p><b>75 instances</b>: twenty five per shape across three shapes.</p>
 
 <div class="tw"><table>
 <thead><tr><th>Axis</th><th></th></tr></thead>
@@ -60,10 +60,13 @@ The vertex count is high because the wave sum happens there: eight Gerstner wave
 <tr><td>Foam</td><td>the foam sources and their maths</td></tr>
 <tr><td>Refraction</td><td>the only scene colour read</td></tr>
 <tr><td>Foam Texture</td><td>a sixth texture read and its shoreline coordinates</td></tr>
+<tr><td>Gradient</td><td>the colour ramp in place of the absorption</td></tr>
 </tbody>
 </table></div>
 
-<p>Four axes is sixteen combinations, but foam texture without foam is unbuildable, so twelve are real - plus a debug instance, which is thirteen a shape.</p>
+<p>Five axes is thirty two combinations, but foam texture without foam is unbuildable, so twenty four are real - plus a debug instance, which is twenty five a shape.</p>
+
+<p>The gradient is the one axis that costs almost nothing to be on: two instructions and no extra sampler, because the ramp tap replaces the absorption's exponential and reads through the same shared sampler as every other tap. It is still a permutation rather than a blend, because a body grading by absorption should not carry a tap for a palette it never reads.</p>
 
 <div class="tw"><table>
 <tr><td>Shapes with instances</td><td>Box, Disc, Spline. An ocean has no bank at all, so it borrows the Disc set and brings its own ring mesh</td></tr>

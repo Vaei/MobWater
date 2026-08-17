@@ -26,6 +26,10 @@ EAL = unreal.EditorAssetLibrary
 MAT_ROOT = '/MobWater/Materials'
 TEX_ROOT = '/MobWater/Textures'
 
+# The colour ramps bake into a texture of their own, which is a texture the project pays for and
+# would not appear in a count that only looked where the tiling ones live.
+GRAD_ROOT = '/MobWater/Gradients'
+
 MASTERS = [
     'M_MobWater',
     'M_MobWaterUnderwater',
@@ -107,7 +111,7 @@ def texture_memory():
 
     total = 0
 
-    for path in _assets_in(TEX_ROOT):
+    for path in _assets_in(TEX_ROOT) + _assets_in(GRAD_ROOT):
         texture = unreal.load_asset(path)
         if texture is None:
             continue

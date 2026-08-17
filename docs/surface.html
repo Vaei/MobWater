@@ -48,9 +48,11 @@
 <div class="tw"><table class="free">
 <thead><tr><th>Property</th><th>Default</th><th></th></tr></thead>
 <tbody>
+<tr><td><b>Gradient Color</b></td><td>off</td><td>grades along a ramp rather than between two colours, which is the only way to a hard band. See <a href="stylized.html#the-gradient-fork">the gradient fork</a></td></tr>
+<tr><td><b>Gradient Row</b></td><td>0</td><td>which palette in <code>GA_MobWater</code>: 0 Stylized, 1 Toon, 2 Tropical, 3 Swamp. Only read with the above on</td></tr>
 <tr><td><b>Shallow Color</b></td><td>0.18, 0.42, 0.42</td><td>linear RGB at its thinnest</td></tr>
 <tr><td><b>Deep Color</b></td><td>0.01, 0.06, 0.11</td><td>what it grades to</td></tr>
-<tr><td><b>Fade Depth</b></td><td>300 cm</td><td>the column over which the colour reaches the deep one</td></tr>
+<tr><td><b>Fade Depth</b></td><td>300 cm</td><td>the column over which the colour reaches the deep one, or the far end of the ramp</td></tr>
 <tr><td><b>Clarity Depth</b></td><td>500 cm</td><td>the column over which the bed stops being visible at all. Not the same question as the colour</td></tr>
 <tr><td><b>Min Opacity</b></td><td>0</td><td>how opaque it is regardless of how much water there is. 1 hides the bed entirely. Shallow stylized water needs this</td></tr>
 <tr><td><b>Unlit</b></td><td>0</td><td>how much of the colour is emitted rather than lit. A green cast, or dark blotches drifting with the surface, are both fixed here</td></tr>
