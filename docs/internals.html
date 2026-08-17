@@ -94,6 +94,8 @@ In a game world these are written as runtime data. In the editor they are writte
 <tr><td><code>ExclusionSoftness</code></td><td>all four softnesses, because a float4 is cheaper than four scalars</td></tr>
 <tr><td><code>SunDirection</code>, <code>SunColor</code></td><td>the directional light the glint follows</td></tr>
 <tr><td><code>ReflectionParams</code></td><td>sky intensity, rotation in turns</td></tr>
+<tr><td><code>SpectrumParams</code></td><td>the baked sea's tile size, loop period, resolution and frame count</td></tr>
+<tr><td><code>SpectrumScale</code></td><td>its horizontal and vertical decode scales, its normal scale, and how many frames are across the atlas</td></tr>
 </tbody>
 </table></div>
 
@@ -110,6 +112,7 @@ The wave writes happen only when the set changes, not every tick - seventeen vec
 <tr><td><code>MobWaterWaves.ush</code></td><td>the Gerstner sum. <b>This file and <code>MobWaterWaves.h</code> are one algorithm written twice</b>, and <code>mob_water_verify.py</code> asserts they agree</td></tr>
 <tr><td><code>MobWaterSurface.ush</code></td><td>depth recovery, absorption, foam, shoreline frames, exclusion, caustics, glint, Fresnel, the packing helpers</td></tr>
 <tr><td><code>MobWaterField.ush</code></td><td>the wave-equation step and reading the field back</td></tr>
+<tr><td><code>MobWaterSpectrum.ush</code></td><td>how the baked sea state's atlas is addressed. <b>This file and <code>MobWaterSpectrum.h</code> are one addressing scheme written twice</b>, and the verify measures what is left between them</td></tr>
 </tbody>
 </table></div>
 
@@ -117,7 +120,9 @@ The wave writes happen only when the set changes, not every tick - seventeen vec
 
 <h2>Regenerating</h2>
 
-<p><b>Water &rarr; Generate Materials</b> runs <code>Python/author_water.py</code>: the surface meshes, the generated textures, the parameter collection, the master, its thirty nine instances, the ripple materials, the underwater material, the wave presets and the look presets. <b>Set Up Water</b> is the same thing plus writing the project settings and refreshing placed water.</p>
+<p><b>Water &rarr; Generate Materials</b> runs <code>Python/author_water.py</code>: the surface meshes, the generated textures, the parameter collection, the master, its ninety two instances, the ripple materials, the underwater material, the wave presets, the look presets and the colour ramps. <b>Set Up Water</b> is the same thing plus writing the project settings and refreshing placed water.</p>
+
+<p><b>Water &rarr; Bake Ocean Spectrum</b> is separate, and runs <code>Python/mob_water_spectrum.py</code>. A generate only runs it when there is no sea state at all, because nothing about authoring materials changes the sea and a solve is seconds rather than an instant. The bake parameters are constants at the top of that file.</p>
 
 <p>Run it once after installing, and again after editing anything in <code>Shaders/</code> or a generator constant.</p>
 
@@ -139,6 +144,7 @@ The master and its instances are <b>not versioned</b> - <code>Content/Materials/
 <li>The constants in <code>MobWaterWaves.h</code> match the defines in <code>MobWaterWaves.ush</code>.</li>
 <li>Every <code>MobWaterData</code> index matches the parameter index in the material, and none is at or past thirty six.</li>
 <li>The CPU evaluator and the shader agree, at 192 points across 3 instants. Worst disagreement to date: <b>0.00074 cm</b>.</li>
+<li>The baked sea's table and its atlas agree, the same way. Worst to date: <b>0.05458 cm</b> - looser on purpose, because that comparison is a hardware bilinear filter against a software one and a filter's subtexel weights are fixed point.</li>
 <li>The generated content is the version this build expects.</li>
 </ul>
 
@@ -164,6 +170,11 @@ Run headlessly, the version check reports six assets missing that plainly exist.
 <tr><td><b>A material instance validates every texture parameter's sampler type</b></td><td>including ones in a branch a static switch compiled away. A failed instance renders black rather than reporting anything</td></tr>
 <tr><td><b>Foam that only replaces base colour is not foam</b></td><td>the wave normal, the sun glint and the sky reflection all keep shading through it, and it reads as a white texture painted onto moving water. Foam has to suppress all three</td></tr>
 <tr><td><b>A vertex shader cannot read the depth buffer</b></td><td>which is why wave attenuation is weighted by distance to the body's own edge and not by how deep the water is. The edge is arithmetic, so the vertex shader and the CPU query can both have it</td></tr>
+<tr><td><b>The shared wrap sampler is anisotropic</b></td><td>which is fine for a tiling texture and wrong for a frame atlas: at a grazing angle it widens its footprint past the cell and averages in the neighbouring frame, and an average of several frames of a travelling wave comes to nothing. It read as the sea flattening towards the horizon. Naming an explicit mip level makes a widening filter impossible, and settles the vertex shader's own question at the same time - there are no derivatives there, so a sample with no level named is a level the compiler has to invent</td></tr>
+<tr><td><b>A <code>TextureSample</code> has no float4 output that can be connected by name</b></td><td>the unnamed one is RGB, and <code>RGBA</code> does not resolve. Handing it to a Custom node whose parameter is a float4 fails inside the generated material with "cannot implicitly convert from float3 to float4", pointing at a line of HLSL nobody wrote. Append the alpha back on with an <code>AppendVector</code></td></tr>
+<tr><td><b>A texture with frames laid out in it needs a gutter and no mips</b></td><td>the field wraps and the atlas does not, so every cell carries a one texel copy of its own opposite edge. Without it the filter reads the next frame at every tile boundary - a band one texel wide across the whole ocean, which looks like a compression artefact. Mips are worse: the second one averages one frame with the next and every mip past it is more of that</td></tr>
+<tr><td><b>A <code>VisibleAnywhere</code> property cannot be set from Python</b></td><td>it carries <code>CPF_EditConst</code>, and the binding refuses. A record that a bake writes and nobody may edit therefore needs a function to write it, which is the better shape anyway - a sea state whose stated wind is not the wind it was solved at is worse than one that states nothing</td></tr>
+<tr><td><b>Containment cannot go through the component's scale</b></td><td>a box and a disc are unit meshes stretched to their extent; an ocean's ring is built at world size already. A reading that divided by the scale and multiplied by the extent was right for the first two and out by the extent for the third, so the ocean answered that every point in the level was outside it - and nothing floated on the sea</td></tr>
 <tr><td><b>Phase has to be folded on both terms before they meet</b></td><td>a world position a kilometre out times a wave number is thousands of radians, and a float has about seven digits. Unfolded, the surface reads as faceted far from the origin and smooth near it</td></tr>
 </tbody>
 </table></div>
@@ -172,10 +183,9 @@ Run headlessly, the version check reports six assets missing that plainly exist.
 
 <div class="tw"><table class="free">
 <tbody>
-<tr><td><b>The baked FFT spectrum</b></td><td>the ocean runs a five-wave Gerstner set. <code>UMobWaterSpectrum</code> and the bake script do not exist yet</td></tr>
 <tr><td><b>The meniscus and underwater caustics</b></td><td>see <a href="underwater.html">Underwater</a></td></tr>
 <tr><td><b>Mesh exclusion</b></td><td>behaves as its bounding rectangle, and says so once</td></tr>
-<tr><td><b>Buoyancy</b></td><td>the query is shaped for it; the component is not written</td></tr>
+<tr><td><b>Exclusion in the CPU query</b></td><td>a point inside a hull still has a surface above it</td></tr>
 <tr><td><b>Waterfalls</b></td><td>a vertical sheet has no plan view, no shore distance and nowhere for the field to reach, so it is its own component and its own master rather than a fifth shape</td></tr>
 <tr><td><b>Per-shape icons</b></td><td><code>Resources/Icon*.png</code> is still MobLights' art</td></tr>
 </tbody>

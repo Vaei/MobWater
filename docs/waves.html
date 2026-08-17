@@ -77,6 +77,52 @@ Steepness is shared out across the set rather than applied per wave, so adding a
 Distance to the edge, and not the depth of the water, however much the second sounds like the better measure. The displacement happens in the vertex shader, and a vertex shader cannot read the depth buffer - the bed is only recoverable per pixel, by which point the vertex has already moved. The edge of a box, a disc or a spline is arithmetic, so the vertex shader and the CPU query can both have it. Scene depth still does everything it can do: colour, clarity and shoreline foam are all per pixel.
 </div>
 
+<h2 id="the-baked-sea">The baked sea</h2>
+
+<p>A Gerstner set is a handful of sines, so it can only ever look like a handful of sines. Real open water is a continuum, and the crossing patterns that make it read as an ocean rather than as a corrugated sheet come from hundreds of components at once. Those cannot be summed per vertex on this renderer, so they are summed once at author time and sampled instead.</p>
+
+<p>Set a body's <b>Spectrum</b> - Ocean only - and it is <i>added</i> to whatever the wave preset already carries. An ocean whose spectrum has not been baked still has waves rather than turning to glass, and a level can put a long authored swell under a baked chop.</p>
+
+<div data-shot="waves.spectrum"></div>
+
+<div class="tw"><table>
+<thead><tr><th><code>SP_MobWater_Ocean</code></th><th></th></tr></thead>
+<tbody>
+<tr><td>Grid</td><td>64&sup2; texels over a 61 m tile, so a texel is 96 cm</td></tr>
+<tr><td>Loop</td><td>128 frames over 16 seconds</td></tr>
+<tr><td>Sea state</td><td>Phillips at 6 m/s, normalised to 35 cm rms - about 1.4 m significant wave height</td></tr>
+<tr><td>Weight</td><td>two 1056&times;528 atlases at 2.13 MB each, and 2.00 MB of query table</td></tr>
+</tbody>
+</table></div>
+
+<h3>It loops exactly</h3>
+
+<p>Every component's angular frequency is rounded down to a whole number of turns over the loop period before the transform runs. That one line is what makes the last frame the frame before the first: there is no crossfade anywhere, and no seam to find. A seam in time on an ocean is more obvious than a seam in space, because the eye is looking for a rhythm rather than for a line.</p>
+
+<p>It also makes the bake fast. Every phase factor is then an exact root of unity, so the inner loop is a table read and there is no transcendental in it - the whole solve takes about six seconds in the editor's own Python, with no numpy anywhere.</p>
+
+<div class="note">
+The price is that the longest components travel a few per cent slow, because their speed has been rounded to the nearest available harmonic. A longer <b>Loop Period</b> has more harmonics to round onto and costs proportionally more frames.
+</div>
+
+<h3>Texels against frames</h3>
+
+<div class="important">
+Resolution and frame count are not independent. A wave's speed comes from its length, so the shortest wave the grid can hold is also the <i>fastest</i>, and a bake with more texels than frames strobes - the small chop teleports between frames instead of travelling. 64 texels across 61 m is a wave every 1.9 m at 1.1 s a cycle, and 128 frames over the 16 s loop samples that eight times a cycle. Doubling the resolution without doubling the frames would halve that and the surface would crawl.
+</div>
+
+<p>Anything finer than the grid belongs in the <a href="surface.html">scrolling detail normals</a>, which cost no memory and do not have to loop. The spectrum is cut off just above two and a half texels for exactly that reason: energy the grid cannot carry does not disappear, it bakes as noise and then strobes.</p>
+
+<h3>The query reads the same bytes</h3>
+
+<p>Not the texture. A dedicated server's texture is a GPU upload that may never have been made, so the asset carries the displacement a second time as a plain byte table, and that is what <code>GetWaterInfoAtLocation</code> reads. Two implementations of a Gerstner sum can be asserted equal; two solves of a Fourier transform in two languages cannot, and the networking story needs the same answer rather than nearly the same one.</p>
+
+<p><b>Verify Contract</b> renders the atlas through a probe and compares it against the table. The last run: <b>192 points across 3 instants, worst disagreement 0.05458 cm</b>. That is a filter weight and not a difference of maths - both sides read the same bytes, and what is left is that a GPU's bilinear weights are fixed point.</p>
+
+<div class="note">
+It found a real fault at ten times that figure, and the fault was the sampler rather than the maths. The frames sit side by side in one atlas, and the shared wrap sampler is anisotropic - so a surface seen at a grazing angle was averaging in the neighbouring frame, which on a travelling wave comes to nothing at all and read as the sea flattening towards the horizon. The taps name their mip level now, which is what makes a widening filter impossible.
+</div>
+
 <h2>The clock</h2>
 
 <p>Water time is an input. MobWater ships no clock of its own, because a clock that two machines agree on is a project's problem and every project has already solved it differently.</p>
@@ -103,7 +149,7 @@ Distance to the edge, and not the depth of the water, however much the second so
 
 <p><code>MobWaterWaves.h</code> and <code>Shaders/Public/MobWaterWaves.ush</code> are one algorithm written twice, because a vertex shader cannot call C++ and a dedicated server has no GPU. Nothing but a test keeps them equal.</p>
 
-<p><b>Water &rarr; Verify Contract</b> evaluates both at sampled points and instants and reports the worst disagreement. The last run: <b>192 points across 3 instants, worst disagreement 0.00074 cm</b>.</p>
+<p><b>Water &rarr; Verify Contract</b> evaluates both at sampled points and instants and reports the worst disagreement. The last run: <b>192 points across 3 instants, worst disagreement 0.00074 cm</b>. The baked tier is checked the same way and agrees to 0.05458 cm, which is looser for a reason the section above gives.</p>
 
 <div data-shot="waves.parity"></div>
 

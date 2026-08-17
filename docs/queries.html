@@ -32,6 +32,7 @@ if (UMobWaterStatics::GetWaterInfoAtLocation(this, Location, Info))
 <tr><td><code>GetWaterInfoAtLocations</code></td><td>many points at once. A pontoon array asks about four to eight points almost always in the same body, so this looks the body up once instead of once per point</td></tr>
 <tr><td><code>GetWaterTime</code></td><td>the instant the waves are being evaluated at, folded into the loop period</td></tr>
 <tr><td><code>EvaluateWavePreset</code></td><td>a named preset at a named instant, with no world state in the way. This is what the parity test drives</td></tr>
+<tr><td><code>EvaluateSpectrum</code></td><td>a named <a href="waves.html#the-baked-sea">baked sea state</a> at a named instant, read out of its table rather than its texture. What the spectrum's parity test drives</td></tr>
 </tbody>
 </table></div>
 
@@ -89,10 +90,51 @@ The compounding case is the one that needs it. A character standing on a ship de
 
 <p><b>Cpu Queries</b> off makes a body scenery. It draws, and nothing can ask where its surface is. A decorative ocean on the horizon has no business paying for a wave evaluation nobody reads, and that is the "full GPU, or output what a ship needs" split.</p>
 
-<h2>Buoyancy</h2>
+<h2 id="buoyancy">Buoyancy</h2>
 
-<div class="caution">
-MobWater does not float anything yet. The query a buoyancy component needs is here and shaped for it - many points in one call, a normal and a fold per point, an authoritative surface - and the component is not written.
+<p>Add a <b>Mob Water Buoyancy</b> component to anything whose root simulates physics and it floats. It is the one thing <code>GetWaterInfoAtLocations</code> was shaped for: a handful of points asked about in one call, on a surface both machines can compute.</p>
+
+<div data-shot="queries.buoyancy"></div>
+
+<h3>Pontoons</h3>
+
+<p>A pontoon is a sphere with an offset and a radius, and what buoyancy wants from geometry is only how much of it is under - which one height difference answers. Left empty, four are built from the body's own bounds when play begins, so a component dropped on a crate floats the crate.</p>
+
+<div class="tw"><table>
+<tr><td><b>Offset</b></td><td>where it sits, in the component's space</td></tr>
+<tr><td><b>Radius</b></td><td>how far above and below its centre it reaches. This is the whole of the smoothing: a small radius on a choppy sea is a body either held up completely or not at all, and it hammers</td></tr>
+</table></div>
+
+<div class="warn">
+<b>Keep the pontoons level with the centre of mass or above it.</b> Lift applied below the centre of mass has an arm that tips the body further the moment it tilts, and on anything as tall as it is wide that term beats the righting couple the pontoons make between them. A hull that rolls over on calm water is this and nothing else.
+</div>
+
+<h3>Buoyancy Coefficient</h3>
+
+<p>How hard the water pushes back, as a multiple of the body's own weight - not a density and a displaced volume. A sphere's volume is not the volume of the hull it stands for, so a physical model would have to be retuned every time a pontoon moved, and it answers a question nobody asks.</p>
+
+<p>This one answers the question everybody asks, because the equilibrium falls straight out of it: <b>at rest the pontoons settle at 1/Coefficient submerged</b>. 2 puts their centres exactly on the waterline, 4 leaves them a quarter under, and below 1 the body sinks however deep the water is.</p>
+
+<div class="note">
+That is asserted rather than claimed. A 1 m cube on a flat body, dropped from 2 m, settles at <b>Z 5000.0000 with submersion 0.50000</b> over a surface at 5000 - the predicted equilibrium to four decimals.
+</div>
+
+<h3>The rest</h3>
+
+<div class="tw"><table>
+<tr><td><b>Vertical Damping</b></td><td>a rate, per second: at full submersion this is how many times a second the vertical speed is taken away. A body clear of the water is not damped at all, which is why a crate dropped from a height bounces for longer than the number suggests</td></tr>
+<tr><td><b>Lateral Damping</b></td><td>the same, sideways. What stops a raft sliding forever, and what carries it on a current</td></tr>
+<tr><td><b>Angular Damping</b></td><td>the same, turning</td></tr>
+<tr><td><b>Flow Strength</b></td><td>how much of the water's flow the body ends up travelling at. 0 is moored</td></tr>
+<tr><td><b>Align To Surface</b></td><td>tips the body by the surface normal as well as by its pontoon heights. What makes a small boat lie along a swell rather than straddle it, and wrong on anything far larger than the waves</td></tr>
+</table></div>
+
+<p>No damping force is ever larger than the one that stops its share of the body this frame. Past that it reverses the velocity into a larger one and reverses that next frame, and a boat that was floating quietly leaves the level on the first hitch - buoyancy is a stiff spring, and a stiff spring integrated forwards is only stable while the frame is short.</p>
+
+<p><code>mob.Water.Buoyancy 1</code> draws every pontoon and the surface height it found. <code>2</code> also logs.</p>
+
+<div class="important">
+This makes a claim about the water and not about the physics. Two machines given the same water and the same forces still diverge, because a solver is not deterministic across builds or frame rates. What this removes is water as a cause of it.
 </div>
 
 <h2>Debugging a disagreement</h2>

@@ -35,7 +35,7 @@ None of the numbers below is the real cost. Water is a translucent plane and the
 <div class="tw"><table>
 <thead><tr><th></th><th>Vertex</th><th>Pixel</th><th>Samplers</th><th>Interpolators</th></tr></thead>
 <tbody>
-<tr><td><code>M_MobWater</code></td><td>926</td><td>1188</td><td>6</td><td>4</td></tr>
+<tr><td><code>M_MobWater</code></td><td>926</td><td>1189</td><td>6</td><td>4</td></tr>
 <tr><td><code>M_MobWaterUnderwater</code></td><td>250</td><td>143</td><td>2</td><td>0</td></tr>
 <tr><td><code>M_MobWaterRippleStep</code></td><td>24</td><td>83</td><td>2</td><td>0</td></tr>
 <tr><td><code>M_MobWaterRippleCopy</code></td><td>24</td><td>26</td><td>2</td><td>0</td></tr>
@@ -51,7 +51,7 @@ The vertex count is high because the wave sum happens there: eight Gerstner wave
 
 <h2>Permutations</h2>
 
-<p><b>75 instances</b>: twenty five per shape across three shapes.</p>
+<p><b>92 instances</b>: twenty five each for Box, Disc and Spline, and seventeen for the Ocean.</p>
 
 <div class="tw"><table>
 <thead><tr><th>Axis</th><th></th></tr></thead>
@@ -64,15 +64,31 @@ The vertex count is high because the wave sum happens there: eight Gerstner wave
 </tbody>
 </table></div>
 
-<p>Five axes is thirty two combinations, but foam texture without foam is unbuildable, so twenty four are real - plus a debug instance, which is twenty five a shape.</p>
+<p>Five axes is thirty two combinations, but foam texture without foam is unbuildable, so twenty four are real - plus a debug instance, which is twenty five a shape. The ocean drops the foam texture as well, its coordinates being measured from a shoreline it does not have, so it is sixteen and a debug.</p>
 
 <p>The gradient is the one axis that costs almost nothing to be on: two instructions and no extra sampler, because the ramp tap replaces the absorption's exponential and reads through the same shared sampler as every other tap. It is still a permutation rather than a blend, because a body grading by absorption should not carry a tap for a palette it never reads.</p>
 
 <div class="tw"><table>
-<tr><td>Shapes with instances</td><td>Box, Disc, Spline. An ocean has no bank at all, so it borrows the Disc set and brings its own ring mesh</td></tr>
+<tr><td>Shapes with instances</td><td>Box, Disc, Spline and Ocean. The ocean used to borrow the Disc set; it is a family of its own now because the baked sea state is a compiled fork of the vertex path</td></tr>
 <tr><td>Keep to</td><td>a handful of combinations across the whole project</td></tr>
 <tr><td>Cheapest useful set</td><td>foam alone, plus ripples on the bodies something can actually walk into</td></tr>
 </table></div>
+
+<h3>What the baked sea costs</h3>
+
+<p>Measured against the same variant on the Disc set, which is the same shader without it:</p>
+
+<div class="tw"><table>
+<thead><tr><th></th><th>Vertex</th><th>Pixel</th><th>Samplers</th></tr></thead>
+<tbody>
+<tr><td><code>MI_MobWater_Disc_Ripples_Foam_Refraction</code></td><td>928</td><td>1229</td><td>7</td></tr>
+<tr><td><code>MI_MobWater_Ocean_Ripples_Foam_Refraction</code></td><td>995</td><td>1284</td><td>7</td></tr>
+</tbody>
+</table></div>
+
+<p><b>Sixty seven vertex instructions, fifty five pixel, and no extra sampler.</b> Four texture reads for two of them - two frames of displacement in the vertex shader and two of normal in the pixel one - and every read is <code>Shared:Wrap</code>, so none of them spends a sampler slot. That is what it costs to replace eight sines with a few hundred components.</p>
+
+<p>It is a shape rather than a sixth variant axis for the reason the others are axes: a spectrum tap on every pond in the level, to serve the one body that has a spectrum, is exactly the cost this plugin is arranged around. Seventeen extra instances is the cheaper end of that trade.</p>
 
 <div class="caution">
 Every combination a level places is a distinct shader and a distinct PSO. That is the price of not paying for features a body does not use, and it is a real price on a platform that compiles at load.
@@ -89,10 +105,16 @@ Every combination a level places is a distinct shader and a distinct PSO. That i
 <tr><td><code>T_MobWaterFoam</code></td><td>256&sup2;</td><td>generated, tiling</td></tr>
 <tr><td><code>T_MobWaterCaustics</code></td><td>256&sup2;</td><td>generated, tiling</td></tr>
 <tr><td><code>T_MobWaterSky</code></td><td>128&times;64</td><td>a stand-in sky, replaced by one setting</td></tr>
+<tr><td><code>T_GA_MobWater</code></td><td>256&times;4</td><td>the colour ramps, one palette a row</td></tr>
+<tr><td><code>T_MobWaterSpectrum</code></td><td>1056&times;528</td><td>2.13 MB, ocean only</td></tr>
+<tr><td><code>T_MobWaterSpectrumNormal</code></td><td>1056&times;528</td><td>2.13 MB, ocean only</td></tr>
+<tr><td><code>SP_MobWater_Ocean</code></td><td>&mdash;</td><td>2.00 MB of query table, ocean only</td></tr>
 </tbody>
 </table></div>
 
-<p>Roughly a megabyte, nearly all of it the two render targets - and the field is a fixed cost whatever a level does, because its price is its resolution.</p>
+<p><b>1.2 MB for a project of lakes and ponds</b>, nearly all of it the two render targets - and the field is a fixed cost whatever a level does, because its price is its resolution.</p>
+
+<p><b>7.5 MB once an ocean loads a sea state.</b> Two uncompressed atlases and the table the query reads, and only a body whose <b>Spectrum</b> is set brings them. Uncompressed is not a choice: every block format quantises three channels together, so a compressed displacement map moves a vertex to wherever the block's average said, and what that produces is a straight seam across the whole ocean. Resolution, frame count and tile size are all bake parameters at the top of <code>mob_water_spectrum.py</code>; halving the resolution is a quarter of the memory.</p>
 
 <div class="tip">
 <b>Ripple Extent</b> trades reach against fineness at no cost either way. Two thousand across 256 is about eight centimetres a texel; doubling the reach halves the detail and changes nothing about the bill.

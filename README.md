@@ -66,7 +66,9 @@ All of it costs one translucent plane, and runs anywhere - including the mobile 
 ### Waves a server can agree with
 
 - **The wave field is a function of position and time**, never a simulation, so two machines given the same instant get the same surface. Buoyancy on the client and buoyancy on the server are the same arithmetic
-- **Nothing is simulated.** Waves are Gerstner sums evaluated from position and time, with no compute shader, no readback and no frame of latency - which is what lets a dedicated server with no GPU answer the same question. The baked FFT spectrum the high tier is designed around is not written yet
+- **Nothing is simulated.** Waves are Gerstner sums evaluated from position and time, with no compute shader, no readback and no frame of latency - which is what lets a dedicated server with no GPU answer the same question
+- **A baked FFT sea state for the ocean.** A Phillips spectrum solved offline and sampled rather than summed, because a handful of sines can only ever look like a handful of sines. It loops exactly - every component is rounded to a whole number of turns over the period, so there is no crossfade to find - and the query reads the same bytes the shader samples, out of a table rather than a texture, because a dedicated server has no texture
+- **Buoyancy.** A pontoon component that floats a rigid body on the surface both machines compute. Its coefficient is a multiple of the body's own weight, so the equilibrium is arithmetic rather than tuning: at rest the pontoons settle at 1/Coefficient submerged
 - **Bring your own clock.** Water time is an input. Bind a synchronised clock and the waves are in phase everywhere; leave it unbound and it falls back to the engine's, which is enough to see water move and not enough to keep two machines together
 - **The CPU cost is opt in per body**, so a decorative ocean pays nothing for a table it never reads
 
@@ -129,6 +131,8 @@ Full walkthrough: [Install](https://vaei.github.io/MobWater/install.html).
   * Stylized unlit character masters, so the characters standing in this water read the same anywhere
 * [Gradient Tool Plugin](https://github.com/Vaei/GradientTool) - **required**
   * Stylized water is a gradient indexed by depth, and a gradient you cannot edit without recompiling is not a gradient
+* [Tessendorf, *Simulating Ocean Water*](https://people.computing.clemson.edu/~jtessen/reports/papers_files/coursenotes2004.pdf)
+  * The Phillips spectrum, the choppy-wave transform and the Jacobian the foam comes from. What `mob_water_spectrum.py` implements, with the frequencies quantised so the result loops
 * [Non-Destructive Synced Net Clock](https://vorixo.github.io/devtricks/non-destructive-synced-net-clock/)
   * What to bind to the time source. A clock corrected by rate rather than by snapping, which is the difference between waves that stay in phase and waves that jump every correction
 * [Forward Render Helper Plugin](https://github.com/Vaei/ForwardRender)

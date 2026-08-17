@@ -52,9 +52,12 @@ Not officially released. Expect updates without versioning, and a changelog that
 
 <ul>
 <li>Gerstner waves, up to eight, with speed from the dispersion relation rather than authored</li>
+<li>A baked FFT sea state for the ocean: a Phillips spectrum solved offline and sampled rather than summed, added on top of the wave preset. It loops exactly, because every component is rounded to a whole number of turns over the period</li>
+<li>The query reads the sea out of a byte table rather than the texture, so a dedicated server answers the same surface the clients draw</li>
 <li>The same algorithm on the CPU and in the shader, asserted equal at 192 points across 3 instants</li>
 <li>Shore attenuation weighted by distance to the body's own edge, computed identically in the vertex shader and the query</li>
 <li>A supplied clock, folded into a loop period, with the same value reaching the material and every query</li>
+<li>The baked tier asserted the same way, at 0.05458 cm - a filter weight rather than a difference of maths</li>
 </ul>
 
 <h3>Ripples</h3>
@@ -79,6 +82,7 @@ Not officially released. Expect updates without versioning, and a changelog that
 
 <ul>
 <li>An interaction component: immersion, enter, exit and splash events, ripples from the feet, wade drag and a swim state</li>
+<li>A buoyancy component: pontoons, a coefficient that is a multiple of the body's own weight, vertical, lateral and angular damping, flow, and an optional alignment to the surface normal</li>
 <li>A virtual movement seam, because a plugin cannot know what movement component a project uses</li>
 <li>An underwater component: a plane in front of the camera that absorbs by distance, with a crossfade at the waterline</li>
 <li>A query API that answers from the wave model alone, attributed to the object that asked</li>
@@ -87,21 +91,21 @@ Not officially released. Expect updates without versioning, and a changelog that
 <h3>Editor</h3>
 
 <ul>
-<li>A Water toolbar menu: draggable placement rows, Set Up Water, Generate Materials, Verify Contract, Report Cost, Open Wave Collection, Open Selected Body's Material, Select Ocean, project settings, and a per-developer hide</li>
+<li>A Water toolbar menu: draggable placement rows, Set Up Water, Generate Materials, Bake Ocean Spectrum, Verify Contract, Report Cost, Open Wave Collection, Open Selected Body's Material, Select Ocean, project settings, and a per-developer hide</li>
 <li>Set Up Water checks its config file out of source control, so the settings survive a restart</li>
 <li>A missing-material notification with a link that generates them</li>
 <li>Details customization that orders the water categories</li>
-<li><code>mob.Water.Debug</code></li>
+<li><code>mob.Water.Debug</code>, and <code>mob.Water.Buoyancy</code> for the pontoons</li>
 </ul>
 
 <h3>Known gaps</h3>
 
 <ul>
-<li>No baked FFT spectrum; the ocean runs a five-wave Gerstner set</li>
 <li>No meniscus, and no caustics seen from underwater</li>
-<li>No buoyancy component, though the query is shaped for one</li>
 <li>Mesh exclusion is a bounding rectangle</li>
 <li>Exclusion is not subtracted from the CPU query</li>
+<li>One sea state a level, because its layout reaches the material through the shared collection</li>
+<li>The baked sea's normal is sampled at mip zero, because a frame atlas cannot carry a mip chain. Nothing was visible at range beside what the ocean's own detail normals were already doing, but a calmer look may find it</li>
 <li>Icons are placeholders</li>
 </ul>
 

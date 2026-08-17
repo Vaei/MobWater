@@ -67,7 +67,7 @@ Verify scene depth in the translucent pass on the platform you are shipping to, 
 
 <h2>Set it up</h2>
 
-<p>Enable the plugin, restart, then <b>Water &rarr; Set Up Water</b> on the level editor toolbar. It authors the parameter collection, the master, its seventy five instances, the surface meshes, the tiling textures, the colour ramps, the wave presets and the look presets, points the project settings at all of them, and refreshes any water already standing in the level.</p>
+<p>Enable the plugin, restart, then <b>Water &rarr; Set Up Water</b> on the level editor toolbar. It authors the parameter collection, the master, its ninety two instances, the surface meshes, the tiling textures, the colour ramps, the wave presets and the look presets, points the project settings at all of them, and refreshes any water already standing in the level. The first run also solves the ocean's sea state, which takes a few seconds longer than the rest of it put together.</p>
 
 <div data-shots="install.menu, install.setup"></div>
 
@@ -76,6 +76,8 @@ The materials are generated rather than shipped, because they are output: <code>
 </div>
 
 <p><b>Generate Materials</b> is the same authoring step without the settings write or the refresh. Use it after editing a shader or a generator constant; use <b>Set Up Water</b> the first time.</p>
+
+<p><b>Bake Ocean Spectrum</b> is its own entry, because a generate does not change the sea and a solve is seconds rather than an instant. Run it when the sea state itself is being changed; the parameters are constants at the top of <code>Python/mob_water_spectrum.py</code>.</p>
 
 <div class="important">
 Set Up Water writes to <code>Config/DefaultEngine.ini</code>. Under source control that file is usually read only, so it checks the file out first, and clears the flag if there is no source control provider to ask. Without that the settings apply for the session and are gone at the next restart, which reads as the setup not having worked rather than not having saved.

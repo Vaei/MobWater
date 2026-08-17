@@ -45,7 +45,8 @@ Not officially released. Expect bugs and updates without versioning. Documentati
 <tr><td><b>Waves lie down at the bank</b></td><td>Amplitude is weighted by distance to the body's own edge, so displacement dies at the shore instead of clipping through it. That one term is what stops a lake's rim shimmering above dry ground.</td></tr>
 <tr><td><b>Bodies are data</b></td><td>Colour, foam, glint and the rest live in custom primitive data, so a jade temple pool and a grey harbour are the same material and share every permutation. A look preset is a copy, not a link.</td></tr>
 <tr><td><b>Ripples, wakes and splashes</b></td><td>A real wave equation on one camera-following field, so ripples spread and reflect off whatever is standing in them. A second body reading the field is not a second cost.</td></tr>
-<tr><td><b>A surface a server agrees with</b></td><td>The waves are a pure function of position and time. Buoyancy on the client and buoyancy on the server are the same arithmetic, and <b>Verify Contract</b> asserts the CPU and the GPU still agree.</td></tr>
+<tr><td><b>An ocean that is a spectrum</b></td><td>A Phillips sea solved offline and sampled rather than summed, because a handful of sines can only ever look like a handful of sines. It loops exactly, and only a body that asks for one carries it.</td></tr>
+<tr><td><b>A surface a server agrees with</b></td><td>The waves are a pure function of position and time. Buoyancy on the client and buoyancy on the server are the same arithmetic, and <b>Verify Contract</b> asserts the CPU and the GPU still agree - and the boats float on it.</td></tr>
 <tr><td><b>Nothing off is paid for</b></td><td>Ripples, foam, foam texture and refraction are separate shaders rather than amounts of zero, because the values arrive as per-instance data the compiler cannot fold.</td></tr>
 </table></div>
 

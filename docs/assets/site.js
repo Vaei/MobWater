@@ -78,6 +78,7 @@ window.DOCS = {
 		'waves.shore':          { page: 'waves.html', cap: 'Shore attenuation off and on, at the bank', file: 'waves-shore.png', compare: 'waves-shore-b.png' },
 		'waves.steepness':      { page: 'waves.html', cap: 'Choppiness from 0 to 1 across one preset', file: 'waves-steepness.png' },
 		'waves.parity':         { page: 'waves.html', cap: 'Verify Contract, reporting the worst CPU-to-GPU disagreement', file: 'waves-parity.png' },
+		'waves.spectrum':       { page: 'waves.html', cap: 'The five-wave Gerstner ocean, and the same ocean carrying a baked spectrum', file: 'waves-spectrum.png', compare: 'waves-spectrum-b.png' },
 
 		'techniques.column':    { page: 'techniques.html', cap: 'The water column, visualised as the material sees it', file: 'techniques-column.png' },
 		'techniques.foam':      { page: 'techniques.html', cap: 'Shoreline, edge and crest foam, each on its own', file: 'techniques-foam.png' },
@@ -113,6 +114,7 @@ window.DOCS = {
 
 		'queries.pontoons':     { page: 'queries.html', cap: 'A pontoon array, and the surface each point was answered', file: 'queries-pontoons.png' },
 		'queries.debug':        { page: 'queries.html', cap: 'mob.Water.Debug, and everything the subsystem publishes', file: 'queries-debug.png' },
+		'queries.buoyancy':     { page: 'queries.html', cap: 'A raft on the swell, with mob.Water.Buoyancy drawing its pontoons', file: 'queries-buoyancy.png' },
 
 		'performance.fill':     { page: 'performance.html', cap: 'Shader complexity over a body of water', file: 'performance-fill.png' },
 		'performance.report':   { page: 'performance.html', cap: 'Report Cost, in the Output Log', file: 'performance-report.png' },

@@ -87,6 +87,16 @@ Flow moves what the water looks like: it drifts the detail normals and the caust
 An ocean is the one shape that can be decorative at real cost. If nothing has to float on it, turn <b>Cpu Queries</b> off and it stops paying for a wave evaluation nobody reads.
 </div>
 
+<h3>The baked sea</h3>
+
+<p>An ocean is also the only shape that reads a <b>Spectrum</b> - a sea solved offline and sampled rather than summed, which is what stops open water reading as a corrugated sheet. It is added to the wave preset rather than replacing it, so an unbaked ocean still has waves. <a href="waves.html#the-baked-sea">How it is baked, and what it costs.</a></p>
+
+<p>It is Ocean only, and that is not arbitrary. A baked field is a tiling continuum with no edge in it, so it has nothing to say about a body that has one: a pond graded by a spectrum would carry open water right up to its bank and lie down there only because the shore fade made it, which is a lake pretending to be the sea rather than a lake.</p>
+
+<div class="note">
+The layout reaches the material through the shared parameter collection, so a level has one sea state at a time. A second ocean on a second spectrum says so in the log rather than quietly drawing the first one's sea at its own scale.
+</div>
+
 <p>It follows the view and has no bank, so there is rarely anywhere to click on it that is not already something else. <b>Water &rarr; Select Ocean</b> selects it without going through the outliner, and is greyed out when the level has none.</p>
 
 <h2>Overlapping bodies</h2>
