@@ -42,6 +42,21 @@ public:
 	UPROPERTY(EditAnywhere, Config, Category="Waves")
 	TMap<EMobWaterShape, TSoftObjectPtr<UMobWaterWavePreset>> DefaultWavePresets;
 
+	/** The waves a body of this shape falls back to when it carries none of its own. */
+	static class UMobWaterWavePreset* GetDefaultWavePreset(EMobWaterShape Shape);
+
+	/**
+	 * The sea state an ocean falls back to when it carries none of its own.
+	 *
+	 * A fallback rather than something the actor is stamped with, so an ocean placed before there was
+	 * a bake picks one up instead of staying flat forever - which is otherwise invisible, because an
+	 * ocean with no spectrum still has waves and simply is not the sea.
+	 */
+	UPROPERTY(EditAnywhere, Config, Category="Waves")
+	TSoftObjectPtr<class UMobWaterSpectrum> DefaultSpectrum;
+
+	static class UMobWaterSpectrum* GetDefaultSpectrum();
+
 	/**
 	 * Where the wave set and the clock every water material shares are read from.
 	 *

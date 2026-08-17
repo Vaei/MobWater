@@ -66,8 +66,18 @@ void UMobWaterBuoyancyComponent::BuildPontoonsFromBounds()
 
 	if (Primitive)
 	{
-		Extent = Primitive->CalcBounds(FTransform::Identity).BoxExtent;
+		// The body's own transform, not the identity. CalcBounds against the identity measures the
+		// mesh rather than the thing in the level, so a crate scaled up floated as though it were
+		// still the size it was authored - pontoons inside the hull and a radius too small to catch
+		// the surface at all.
+		Extent = Primitive->CalcBounds(Primitive->GetComponentTransform()).BoxExtent;
 	}
+
+	// Back into the component's own space, because Offset is transformed by it every tick and a world
+	// sized offset would then be scaled a second time.
+	const FVector Scale = GetComponentTransform().GetScale3D();
+	Extent.X /= FMath::Max(FMath::Abs(Scale.X), UE_KINDA_SMALL_NUMBER);
+	Extent.Y /= FMath::Max(FMath::Abs(Scale.Y), UE_KINDA_SMALL_NUMBER);
 
 	Pontoons.Reset(4);
 

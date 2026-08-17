@@ -3,6 +3,7 @@
 #include "MobWaterSettings.h"
 
 #include "MobWaterComponent.h"
+#include "MobWaterSpectrum.h"
 #include "MobWaterModule.h"
 #include "MobWaterUnderwaterComponent.h"
 #include "Materials/MaterialInterface.h"
@@ -40,6 +41,8 @@ UMobWaterSettings::UMobWaterSettings()
 	DefaultWavePresets.Add(EMobWaterShape::Disc, TSoftObjectPtr<UMobWaterWavePreset>(FSoftObjectPath(Pond)));
 	DefaultWavePresets.Add(EMobWaterShape::Spline, TSoftObjectPtr<UMobWaterWavePreset>(FSoftObjectPath(Lake)));
 	DefaultWavePresets.Add(EMobWaterShape::Ocean, TSoftObjectPtr<UMobWaterWavePreset>(FSoftObjectPath(Ocean)));
+
+	DefaultSpectrum = TSoftObjectPtr<UMobWaterSpectrum>(FSoftObjectPath(TEXT("/MobWater/Spectra/SP_MobWater_Ocean.SP_MobWater_Ocean")));
 
 	ReflectionTexture = TSoftObjectPtr<UTexture>(FSoftObjectPath(TEXT("/MobWater/Textures/T_MobWaterSky.T_MobWaterSky")));
 
@@ -89,6 +92,22 @@ UStaticMesh* UMobWaterSettings::GetSurfaceMesh(EMobWaterShape Shape)
 	}
 
 	return nullptr;
+}
+
+UMobWaterWavePreset* UMobWaterSettings::GetDefaultWavePreset(EMobWaterShape Shape)
+{
+	const UMobWaterSettings* Settings = GetDefault<UMobWaterSettings>();
+	if (const TSoftObjectPtr<UMobWaterWavePreset>* Found = Settings->DefaultWavePresets.Find(Shape))
+	{
+		return Found->LoadSynchronous();
+	}
+
+	return nullptr;
+}
+
+UMobWaterSpectrum* UMobWaterSettings::GetDefaultSpectrum()
+{
+	return GetDefault<UMobWaterSettings>()->DefaultSpectrum.LoadSynchronous();
 }
 
 UMaterialInterface* UMobWaterSettings::GetMaterial(EMobWaterShape Shape, int32 Variant)

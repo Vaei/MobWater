@@ -444,6 +444,15 @@ public:
 
 	const FMobWaterWaveParams& GetWaveParams() const;
 
+	/**
+	 * The sea state this body reads, which is its own or the settings' fallback.
+	 *
+	 * Null for anything but an ocean. A baked field is a tiling continuum with no edge in it, so it
+	 * has nothing to say about a body that has one.
+	 */
+	UFUNCTION(BlueprintPure, Category="Waves")
+	UMobWaterSpectrum* GetSpectrum() const;
+
 protected:
 	/**
 	 * Writes one float of custom primitive data.

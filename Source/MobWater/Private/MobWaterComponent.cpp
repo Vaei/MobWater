@@ -197,7 +197,7 @@ void UMobWaterComponent::ApplySurface()
 	{
 		if (UMobWaterSubsystem* Subsystem = UMobWaterSubsystem::Get(this))
 		{
-			Subsystem->SetSpectrum(Spectrum);
+			Subsystem->SetSpectrum(GetSpectrum());
 		}
 	}
 
@@ -289,8 +289,8 @@ void UMobWaterComponent::ApplyTextureOverrides(UMaterialInterface* Shared)
 	// Only when the spectrum is not the one the shared material already carries. The instances ship
 	// pointing at the atlases the generator baked, so an ocean that uses those needs no material of
 	// its own - and an ocean is the one body a project is most likely to have several of.
-	const bool bWantsSpectrum = Shape == EMobWaterShape::Ocean && Spectrum && Spectrum->IsUsable()
-		&& !SharesSpectrumTextures(Shared);
+	const UMobWaterSpectrum* Sea = GetSpectrum();
+	const bool bWantsSpectrum = Sea && Sea->IsUsable() && !SharesSpectrumTextures(Shared);
 
 	if (!bWantsFoam && !bWantsSpectrum)
 	{
@@ -319,14 +319,15 @@ void UMobWaterComponent::ApplyTextureOverrides(UMaterialInterface* Shared)
 
 	if (bWantsSpectrum)
 	{
-		OverrideMaterial->SetTextureParameterValue(TEXT("SpectrumDisplacement"), Spectrum->DisplacementTexture);
-		OverrideMaterial->SetTextureParameterValue(TEXT("SpectrumNormal"), Spectrum->NormalTexture);
+		OverrideMaterial->SetTextureParameterValue(TEXT("SpectrumDisplacement"), Sea->DisplacementTexture);
+		OverrideMaterial->SetTextureParameterValue(TEXT("SpectrumNormal"), Sea->NormalTexture);
 	}
 }
 
 bool UMobWaterComponent::SharesSpectrumTextures(UMaterialInterface* Shared) const
 {
-	if (!Shared || !Spectrum)
+	const UMobWaterSpectrum* Sea = GetSpectrum();
+	if (!Shared || !Sea)
 	{
 		return false;
 	}
@@ -337,7 +338,7 @@ bool UMobWaterComponent::SharesSpectrumTextures(UMaterialInterface* Shared) cons
 	Shared->GetTextureParameterValue(TEXT("SpectrumDisplacement"), Displacement);
 	Shared->GetTextureParameterValue(TEXT("SpectrumNormal"), Normal);
 
-	return Displacement == Spectrum->DisplacementTexture && Normal == Spectrum->NormalTexture;
+	return Displacement == Sea->DisplacementTexture && Normal == Sea->NormalTexture;
 }
 
 void UMobWaterComponent::WriteWaterData(int32 Index, float Value)
@@ -366,11 +367,29 @@ void UMobWaterComponent::WriteWaterData3(int32 Index, const FLinearColor& Value)
 	WriteWaterData(Index + 2, Value.B);
 }
 
+UMobWaterSpectrum* UMobWaterComponent::GetSpectrum() const
+{
+	if (Shape != EMobWaterShape::Ocean)
+	{
+		return nullptr;
+	}
+
+	return Spectrum ? Spectrum.Get() : UMobWaterSettings::GetDefaultSpectrum();
+}
+
 const FMobWaterWaveParams& UMobWaterComponent::GetWaveParams() const
 {
 	if (WavePreset)
 	{
 		return WavePreset->Waves;
+	}
+
+	// This shape's own default before the world's. The world's is one set for everything, and one set
+	// for everything is a pond - so an ocean that was placed before it had a preset, or had one
+	// cleared, ran pond waves and looked like an ocean with its amplitude turned down.
+	if (const UMobWaterWavePreset* Preset = UMobWaterSettings::GetDefaultWavePreset(Shape))
+	{
+		return Preset->Waves;
 	}
 
 	static const FMobWaterWaveParams Empty;
@@ -466,7 +485,7 @@ FMobWaterInfo UMobWaterComponent::GetWaterInfoAtLocation(const FVector& Location
 		Depth,
 		GetShoreFade(Location),
 		Subsystem->GetWaterTime(),
-		Shape == EMobWaterShape::Ocean ? Spectrum.Get() : nullptr);
+		GetSpectrum());
 
 	Info.FlowVelocity = GetWorldFlowVelocity();
 

@@ -387,8 +387,16 @@ void UMobWaterSubsystem::UnregisterBody(UMobWaterComponent* Body)
 
 UMobWaterComponent* UMobWaterSubsystem::FindBodyAt(const FVector& Location) const
 {
-	UMobWaterComponent* Best = nullptr;
-	float BestDepth = -1.f;
+	// Height first, and depth only to break a tie. Depth alone is right for two bodies drawn at the
+	// same level - a shallow trough across a lake is decoration on it - and badly wrong the moment
+	// they are at different heights: a rock pool on a headland sits inside an ocean's footprint, and
+	// picking the deeper of the two answers about the sea two hundred metres below. Everything put in
+	// the pool then falls through it.
+	UMobWaterComponent* Under = nullptr;
+	double UnderZ = -TNumericLimits<double>::Max();
+
+	UMobWaterComponent* Over = nullptr;
+	double OverZ = TNumericLimits<double>::Max();
 
 	for (const TWeakObjectPtr<UMobWaterComponent>& Entry : Bodies)
 	{
@@ -398,14 +406,28 @@ UMobWaterComponent* UMobWaterSubsystem::FindBodyAt(const FVector& Location) cons
 			continue;
 		}
 
-		if (Body->Depth > BestDepth)
+		// The still surface, not the waved one. A point a wave is about to reach is in that body
+		// already, and a rule that changed its mind as a crest passed would flicker.
+		const double SurfaceZ = Body->GetComponentLocation().Z;
+
+		if (SurfaceZ >= Location.Z)
 		{
-			BestDepth = Body->Depth;
-			Best = Body;
+			// The point is under this one. The lowest such surface is the water it is actually in.
+			if (SurfaceZ < UnderZ || !Under || (SurfaceZ == UnderZ && Under && Body->Depth > Under->Depth))
+			{
+				UnderZ = SurfaceZ;
+				Under = Body;
+			}
+		}
+		else if (SurfaceZ > OverZ || !Over || (SurfaceZ == OverZ && Over && Body->Depth > Over->Depth))
+		{
+			// Nothing is over it yet. The highest surface below is the one it would fall into.
+			OverZ = SurfaceZ;
+			Over = Body;
 		}
 	}
 
-	return Best;
+	return Under ? Under : Over;
 }
 
 void UMobWaterSubsystem::RegisterExclusion(UMobWaterExclusionComponent* Exclusion)
