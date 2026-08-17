@@ -69,7 +69,10 @@ All of it costs one translucent plane, and runs anywhere - including the mobile 
 - **Nothing is simulated.** Waves are Gerstner sums evaluated from position and time, with no compute shader, no readback and no frame of latency - which is what lets a dedicated server with no GPU answer the same question
 - **A baked FFT sea state for the ocean.** A Phillips spectrum solved offline and sampled rather than summed, because a handful of sines can only ever look like a handful of sines. It loops exactly - every component is rounded to a whole number of turns over the period, so there is no crossfade to find - and the query reads the same bytes the shader samples, out of a table rather than a texture, because a dedicated server has no texture
 - **Buoyancy.** A pontoon component that floats a rigid body on the surface both machines compute. Its coefficient is a multiple of the body's own weight, so the equilibrium is arithmetic rather than tuning: at rest the pontoons settle at 1/Coefficient submerged
+- **More than one sea state a level.** A baked sea's layout is per body rather than per world, so a harbour on a short chop and the open sea beyond it on a long swell are two assets and two oceans rather than a choice of which one the level gets
 - **Bring your own clock.** Water time is an input. Bind a synchronised clock and the waves are in phase everywhere; leave it unbound and it falls back to the engine's, which is enough to see water move and not enough to keep two machines together
+- **Asserted on three machines, not argued.** A real dedicated server and two real clients each record the surface at fixed points every frame and the files are compared row by row - then again with the clock stepped by a thousand loop periods, which is what proves the fold, and again with two machines deliberately out of phase, which have to disagree
+- **A Rewind Debugger track.** The clock, the wave set and every body's transform, plus every query attributed to whoever made it - because a ship that desyncs has usually not found different water, it asked about a different place, and those are unrelated bugs
 - **The CPU cost is opt in per body**, so a decorative ocean pays nothing for a table it never reads
 
 ### Things moving through it
@@ -78,12 +81,13 @@ All of it costs one translucent plane, and runs anywhere - including the mobile 
 - **A wake behind anything that keeps moving**, and foam left where it has been
 - **Splashes at the feet**, at the depth the character is actually standing in
 - **Wading and swimming** - drag that grows with immersion, and a swim state above it
-- **One field, however many things are in it.** Ripples, foam and exclusion share one camera-following target, so its cost is fixed by resolution and a second water body reading it is not a second cost
+- **One field, however many things are in it.** Ripples and foam share one camera-following target, so its cost is fixed by resolution and a second water body reading it is not a second cost
 
 ### Water kept out
 
 - **Exclusion volumes in five shapes** - disc, sphere, box, rect and mesh. A hull is dry inside and clear outside, and stays that way while it moves
-- **Exclusion is both**, carving the rendered surface and blocking submersion, so nothing has to be authored twice to agree
+- **A mesh cuts its own outline**, rasterised once in the editor to a distance mask, so a cooked build never reads a vertex buffer and a soft edge means the same centimetres it does on a box
+- **Exclusion is both**, carving the rendered surface and blocking submersion, so nothing has to be authored twice to agree - and the two are compared against each other at a grid of points rather than assumed to match
 
 ### Under it
 
