@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ships in it &middot; MobWater</title>
+<link rel="icon" href="assets/icon.png">
+<link rel="stylesheet" href="assets/docs.css">
+<script>try{var t=localStorage.getItem('mob-theme');document.documentElement.dataset.theme=t||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light')}catch(e){}</script>
+<script src="assets/site.js" defer></script>
+<script src="assets/docs.js" defer></script>
+</head>
+<body>
+<main>
+
+<h1>Ships in it</h1>
+<p class="lede">The CPU query, what it answers, and what it deliberately does not know.</p>
+
+<h2>The API</h2>
+
+<pre><code>FMobWaterInfo Info;
+if (UMobWaterStatics::GetWaterInfoAtLocation(this, Location, Info))
+{
+    // Info.SurfaceZ, Info.Normal, Info.ImmersionDepth, Info.Depth, Info.FlowVelocity, Info.Fold
+}</code></pre>
+
+<div class="tw"><table class="free">
+<thead><tr><th>Function</th><th></th></tr></thead>
+<tbody>
+<tr><td><code>GetWaterInfoAtLocation</code></td><td>the whole answer at one point</td></tr>
+<tr><td><code>GetWaterSurfaceZ</code></td><td>the surface height and nothing else. The cheap case, and the common one</td></tr>
+<tr><td><code>GetWaterInfoAtLocations</code></td><td>many points at once. A pontoon array asks about four to eight points almost always in the same body, so this looks the body up once instead of once per point</td></tr>
+<tr><td><code>GetWaterTime</code></td><td>the instant the waves are being evaluated at, folded into the loop period</td></tr>
+<tr><td><code>EvaluateWavePreset</code></td><td>a named preset at a named instant, with no world state in the way. This is what the parity test drives</td></tr>
+</tbody>
+</table></div>
+
+<h3>What comes back</h3>
+
+<div class="tw"><table class="free">
+<thead><tr><th>Field</th><th></th></tr></thead>
+<tbody>
+<tr><td><b>bValid</b></td><td>false when the point is outside every body, in which case nothing else is meaningful</td></tr>
+<tr><td><b>SurfaceZ</b></td><td>world Z of the surface directly above the point</td></tr>
+<tr><td><b>Normal</b></td><td>the surface normal there. Straight up on a still body</td></tr>
+<tr><td><b>ImmersionDepth</b></td><td>how far the point is below the surface. Negative above it</td></tr>
+<tr><td><b>Depth</b></td><td>how deep the water is here - surface to bed, not surface to the point. This is the body's <b>Depth</b> property, answered rather than measured</td></tr>
+<tr><td><b>FlowVelocity</b></td><td>how fast the surface is moving across the ground</td></tr>
+<tr><td><b>Fold</b></td><td>how hard the surface is folding, 0 flat and 1 about to break. The same number crest foam is drawn from, so a splash spawned where this is high lands on a crest that actually looks like it is breaking</td></tr>
+</tbody>
+</table></div>
+
+<div data-shot="queries.pontoons"></div>
+
+<h2>Who is asking</h2>
+
+<p>The first argument is the <b>querier</b>, and it is explicit rather than a world context that happened to be convenient.</p>
+
+<p>When a ship and a client disagree about where the water is, the first thing worth knowing is almost never that the water disagreed. It is that the two machines asked about <i>different places</i>, because the ship itself was somewhere different. Separating those needs the query attributed to something, and attributing it to whichever object supplied the world would be right by luck and wrong from a Blueprint library.</p>
+
+<div class="note">
+The compounding case is the one that needs it. A character standing on a ship derives its query point from the ship's transform, so a small error in the hull becomes a large error at the feet, and presents as the water being wrong in one spot. It is not a water bug and no amount of looking at the waves finds it.
+</div>
+
+<h2>Why it can be trusted</h2>
+
+<p>The surface is a pure function of position and time. Two machines given the same instant compute the same answer with the same arithmetic - the CPU path and the shader are one algorithm written twice, and <b>Verify Contract</b> asserts they still agree. The last run: 192 points across 3 instants, worst disagreement <b>0.00074 cm</b>.</p>
+
+<p>So buoyancy on the client and buoyancy on the server are the same calculation, and the only thing that can part them is the clock. <a href="waves.html#the-clock">Bind a synchronised one.</a></p>
+
+<h2 id="what-it-does-not-know">What it does not know</h2>
+
+<div class="warn">
+<b>Ripples, wakes and stamped foam are not in the answer, and cannot be.</b> The field they live in is a render target, and a dedicated server has no GPU to hold one. Waves are shared; ripples are decoration.
+</div>
+
+<p>Two more, each worth knowing before something is built on it:</p>
+
+<div class="tw"><table class="free">
+<tbody>
+<tr><td><b>Depth is authored</b></td><td>the bed is only knowable per pixel, from the depth buffer, and the CPU cannot read it. <code>Depth</code> is the body's own property, so a pool sitting over a floor it does not match will report water that is not there</td></tr>
+<tr><td><b>Exclusion is not subtracted</b></td><td>a point inside a hull still has a surface above it. Ask <code>UMobWaterSubsystem::GetExclusionAtLocation</code> as well - see <a href="exclusion.html#asking-on-the-cpu">Exclusion</a></td></tr>
+</tbody>
+</table></div>
+
+<h2>Cost, and turning it off</h2>
+
+<p>Evaluation is per point per call: eight waves unrolled, plus four iterations walking back to the column asked about. A pontoon array of eight points is eight of those, and <code>GetWaterInfoAtLocations</code> saves the body lookup, not the maths.</p>
+
+<p><b>Cpu Queries</b> off makes a body scenery. It draws, and nothing can ask where its surface is. A decorative ocean on the horizon has no business paying for a wave evaluation nobody reads, and that is the "full GPU, or output what a ship needs" split.</p>
+
+<h2>Buoyancy</h2>
+
+<div class="caution">
+MobWater does not float anything yet. The query a buoyancy component needs is here and shaped for it - many points in one call, a normal and a fold per point, an authoritative surface - and the component is not written.
+</div>
+
+<h2>Debugging a disagreement</h2>
+
+<p><code>mob.Water.Debug</code> dumps the clock raw and folded, whether a time source is bound or the engine fallback is being used, which parameter collection is in play, the ripple field's origin and stamp count, and the whole wave set wave by wave.</p>
+
+<div data-shot="queries.debug"></div>
+
+<p>Run it on both machines and diff. A clock divergence shows in one line, and so does a wave set that only reached one of them. If both match, the water is not what disagreed - compare the query <i>points</i> next.</p>
+
+<p><a class="cta" href="performance.html">Now what it costs &rarr;</a></p>
+
+</main>
+</body>
+</html>

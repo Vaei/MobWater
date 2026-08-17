@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>If it is wrong &middot; MobWater</title>
+<link rel="icon" href="assets/icon.png">
+<link rel="stylesheet" href="assets/docs.css">
+<script>try{var t=localStorage.getItem('mob-theme');document.documentElement.dataset.theme=t||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light')}catch(e){}</script>
+<script src="assets/site.js" defer></script>
+<script src="assets/docs.js" defer></script>
+</head>
+<body>
+<main>
+
+<h1>If it is wrong</h1>
+<p class="lede">Symptom to cause, in order of likelihood.</p>
+
+<h2>Nothing renders</h2>
+
+<div class="tw"><table class="free">
+<thead><tr><th>Symptom</th><th>Cause</th></tr></thead>
+<tbody>
+<tr><td>Nothing renders at all</td><td>the shape has no material. <code>LogMobWater</code> says so by name, once; <b>Water &rarr; Set Up Water</b> fixes it</td></tr>
+<tr><td>A notification about a missing material</td><td>a body was placed before generating. The link on the toast generates them</td></tr>
+<tr><td>Changing a feature tick box does nothing</td><td>it swaps the material, so that combination has to exist. Regenerate</td></tr>
+<tr><td>Water renders but the bed is flat everywhere</td><td>scene depth in the translucent pass is not available. That is the one hard requirement, and the editor having it does not mean the device does</td></tr>
+<tr><td>Water renders black</td><td>an instance failed to compile. Usually a texture parameter whose compression does not match the slot - a material instance validates every texture parameter, including ones a static switch compiled away</td></tr>
+</tbody>
+</table></div>
+
+<div data-shot="troubleshooting.notify"></div>
+
+<h2>The surface</h2>
+
+<div class="tw"><table class="free">
+<thead><tr><th>Symptom</th><th>Cause</th></tr></thead>
+<tbody>
+<tr><td>It never moves</td><td>the parameter collection was never written. <code>mob.Water.Debug</code> reports <code>collection none - water will be flat</code></td></tr>
+<tr><td>It moves in game and not in the viewport</td><td>it should do both; the subsystem ticks in editor. If not, the level has no water subsystem, which means no world of a supported type</td></tr>
+<tr><td>A pond has an ocean's swell</td><td>its <b>Wave Preset</b>. A newly placed body takes the preset for its shape, and one that was duplicated from an ocean did not</td></tr>
+<tr><td>Waves stand above dry ground at the rim</td><td><b>Shore Fade Distance</b> too short for the wavelength. It has to be longer than the waves it is putting down</td></tr>
+<tr><td>The surface reads as faceted far from the origin</td><td>should not happen - both phase terms are folded for exactly this. If it does, a wave under a centimetre long is in the set</td></tr>
+<tr><td>A green cast, or dark blotches drifting with the surface</td><td>the skylight, and waves turning away from the sun. <b>Unlit</b></td></tr>
+<tr><td>It reads as varnished</td><td><b>Reflection Strength</b>. A Fresnel reflection is a smooth ramp across the whole body</td></tr>
+<tr><td>Deep water is the wrong colour over a pale floor</td><td>correct, and the point. Colour comes from the column between the surface and the real bed</td></tr>
+<tr><td>A shallow pool stays transparent however low the clarity</td><td>there is almost no water in it. <b>Min Opacity</b> is the answer, not clarity</td></tr>
+<tr><td>Water sits at the wrong height</td><td>the actor's Z. <b>Depth</b> is what a query is told, not where the surface is</td></tr>
+<tr><td>Resizing the actor did nothing useful</td><td><b>Extent</b>, never actor scale. The component owns its own scale and the vertex shader is handed the half extent</td></tr>
+</tbody>
+</table></div>
+
+<div data-shot="troubleshooting.flat"></div>
+
+<h2>Foam</h2>
+
+<div class="tw"><table class="free">
+<thead><tr><th>Symptom</th><th>Cause</th></tr></thead>
+<tbody>
+<tr><td>Foam covers the whole body</td><td><b>Shore Foam Depth</b> anywhere near how deep the water actually is. It is a line, not a region</td></tr>
+<tr><td>Foam looks like a broken texture</td><td>the same thing. What reads as texture is the noise applied over a region instead of along an edge</td></tr>
+<tr><td>Bands are mottled blotches</td><td>banding applied to a wide foam region. Narrow it first; bands only work once the foam is already a line</td></tr>
+<tr><td>Bands look like one band with steps in it</td><td><b>Foam Band Separation</b> at 0. Nothing separates them</td></tr>
+<tr><td>The foam is textured and should not be</td><td><b>Foam Texture Opacity</b>. With <b>Foam Texture</b> off it is how much of the water underneath shows through, and at 0 the foam is flat froth</td></tr>
+<tr><td>Foam texture streaks the wrong way</td><td>it is sampled in the shoreline's frame, so it runs away from the bank on every side. If it runs with the current, <b>Foam Texture</b> is off and the water's own texture is showing through</td></tr>
+<tr><td>Assigning a <b>Foam Texture</b> did nothing</td><td>the asset is a per-body override that takes a dynamic material instance. Confirm with <b>Water &rarr; Open Selected Body's Material</b> which instance the body is drawing</td></tr>
+<tr><td>Turning foam off left a white edge</td><td>a different source. Four feed it: shoreline, edge, crest and ripple</td></tr>
+<tr><td>A still pond has no crest foam</td><td>correct. Crest foam needs steepness a still body does not have, which is why it reads as still</td></tr>
+</tbody>
+</table></div>
+
+<h2>Ripples</h2>
+
+<div class="tw"><table class="free">
+<thead><tr><th>Symptom</th><th>Cause</th></tr></thead>
+<tbody>
+<tr><td>A disturber does nothing</td><td>the body has <b>Ripples</b> off, or the disturber is outside the field - the field follows the view, and a body across the level is not in it</td></tr>
+<tr><td>A permanent mound under a standing character</td><td><b>Move Threshold</b> at 0 with <b>Persistent</b> on. The accumulated push builds</td></tr>
+<tr><td>The field fills with noise that never settles</td><td><b>Ripple Speed</b> raised past stability. It is clamped at 0.45 for this reason</td></tr>
+<tr><td>The pond never goes still</td><td><b>Ripple Damping</b> at 1</td></tr>
+<tr><td>Ripples are coarse</td><td><b>Ripple Extent</b> against a fixed 256&sup2;. Reach and fineness trade directly</td></tr>
+<tr><td>Buoyancy ignores a wake</td><td>correct, and permanent. The field is a render target and a dedicated server has none - see <a href="ripples.html#not-authoritative">the field is never authoritative</a></td></tr>
+</tbody>
+</table></div>
+
+<h2>Exclusion</h2>
+
+<div class="tw"><table class="free">
+<thead><tr><th>Symptom</th><th>Cause</th></tr></thead>
+<tbody>
+<tr><td>A fifth volume holds nothing back</td><td>four are rendered at once, nearest the view. The log says so once</td></tr>
+<tr><td>A distant hull fills with water</td><td>the same. The CPU query answers from all of them, so it and the pixels disagree - the query is right</td></tr>
+<tr><td>Water is on a bridge deck over a lake</td><td>exclusion is a footprint, not a storey. Inherent</td></tr>
+<tr><td>A mesh exclusion behaves as a rectangle</td><td>it is not implemented, and says so once rather than quietly doing something else</td></tr>
+<tr><td>A character in a carved hull still counts as swimming</td><td>the query does not subtract exclusion. Ask <code>GetExclusionAtLocation</code> - see <a href="exclusion.html#asking-on-the-cpu">Exclusion</a></td></tr>
+</tbody>
+</table></div>
+
+<h2>Characters</h2>
+
+<div class="tw"><table class="free">
+<thead><tr><th>Symptom</th><th>Cause</th></tr></thead>
+<tbody>
+<tr><td>No splash</td><td>nothing is bound to <code>OnSplash</code>. The component spawns nothing by design</td></tr>
+<tr><td>Splashes only on entry, never on footfalls</td><td>call <code>Splash</code> from a footstep notify. The component cannot know when a foot lands</td></tr>
+<tr><td>The character is permanently slower after a puddle</td><td>an override that reads the walk speed back after scaling it. Capture the original once</td></tr>
+<tr><td>Wading or swimming does nothing</td><td>the project does not use a stock <code>UCharacterMovementComponent</code>. Override <code>ApplyWade</code> and <code>ApplySwimming</code>, and call nothing in the parent</td></tr>
+<tr><td>Immersion is measured at the head</td><td><b>Measure Offset</b>. It defaults to the feet of a standard capsule</td></tr>
+</tbody>
+</table></div>
+
+<h2>Networking</h2>
+
+<div class="tw"><table class="free">
+<thead><tr><th>Symptom</th><th>Cause</th></tr></thead>
+<tbody>
+<tr><td>Two machines disagree about the surface</td><td>the clock. <code>mob.Water.Debug</code> on both and compare the time line first</td></tr>
+<tr><td>The surface jumps</td><td>the engine fallback clock, corrected in steps. A step in the clock is a step in every wave at once. Bind a synchronised source</td></tr>
+<tr><td>They agree on the clock and still disagree</td><td>they asked about different places. Compare the query points, not the water</td></tr>
+<tr><td>Physics sits slightly off the water it is drawn on</td><td>something read the world's time rather than <code>GetWaterTime</code>. Only the folded value is allowed downstream</td></tr>
+</tbody>
+</table></div>
+
+<h2>Editor</h2>
+
+<div class="tw"><table class="free">
+<thead><tr><th>Symptom</th><th>Cause</th></tr></thead>
+<tbody>
+<tr><td>Set Up Water is forgotten at every restart</td><td>the config file was not checked out. It checks out, and clears the read-only flag when there is no provider - if that is still failing, the file is locked by something else</td></tr>
+<tr><td>Editing a <code>.ush</code> changed nothing</td><td><code>recompileshaders changed</code> does not pick up a <code>.ush</code> under a plugin's virtual shader path. Restart the editor</td></tr>
+<tr><td>Generate Materials does nothing</td><td>the Python Editor Script Plugin. The plugin enables it, but a project that disabled it by hand stays disabled</td></tr>
+<tr><td>The Water menu is gone</td><td><b>Hide This Menu</b>. Editor Preferences puts it back, and the choice is per developer rather than the project's</td></tr>
+<tr><td>Verify Contract reports six assets missing that plainly exist</td><td>run headlessly. The asset registry has not scanned in a commandlet, so the existence check answers no for a folder that is full. It passes in the editor</td></tr>
+<tr><td>Pointing a shape at a new material left the level blank</td><td>a component picks its material up when it registers. The settings refresh placed water for this reason; if it was changed another way, reload the level</td></tr>
+</tbody>
+</table></div>
+
+</main>
+</body>
+</html>

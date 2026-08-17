@@ -1,0 +1,532 @@
+// Copyright (c) Jared Taylor
+
+#pragma once
+
+/*
+ * /MobWater/Public/MobWaterSurface.ush
+ *
+ * What the surface is made of, once the waves have decided where it is.
+ *
+ * The whole material rests on one number: how much water there is between this pixel and whatever is
+ * behind it. That comes out of the depth buffer, which the translucent pass already has, so colour,
+ * clarity and shoreline foam are all read off a tap nobody had to add.
+ *
+ * Nothing here samples a texture. A Custom node emits its own sampler and has no shared-sampler path,
+ * so taps happen in TextureSample nodes set to Shared:Wrap and arrive here already sampled.
+ */
+
+#include "/MobWater/Public/MobWaterWaves.ush"
+
+/**
+ * How far a pixel is from the edge of a rectangular body, in world units.
+ *
+ * UV runs 0 to 1 across the surface mesh and HalfExtent is the body's size in world units, because
+ * the mesh is unit sized and scaled by the component - so the geometry alone cannot say how big the
+ * body is, and the size arrives as per-instance data instead.
+ */
+float MobWaterEdgeDistanceBox(float2 UV, float2 HalfExtent)
+{
+	const float2 FromCentre = abs(UV - 0.5f) * 2.0f;
+	const float2 Inset = (1.0f - FromCentre) * HalfExtent;
+	return min(Inset.x, Inset.y);
+}
+
+/**
+ * How far a vertex colour says this pixel is inside the water, in world units.
+ *
+ * A spline body's shape is whatever was drawn, so no pair of numbers describes it and the distance
+ * is baked per vertex instead. Eight bits over ten metres is about four centimetres a step, which is
+ * finer than the fade it feeds and far finer than the grid the vertices sit on.
+ *
+ * Duplicated as MOB_WATER_SHORE_REFERENCE in MobWaterSplineMesh.h.
+ */
+#define MOB_WATER_SHORE_REFERENCE 1000.0f
+
+float MobWaterEdgeDistanceVertex(float VertexShore)
+{
+	return VertexShore * MOB_WATER_SHORE_REFERENCE;
+}
+
+/** The same, for a disc. */
+float MobWaterEdgeDistanceRadial(float2 UV, float2 HalfExtent)
+{
+	const float Radius = length((UV - 0.5f) * 2.0f);
+	return (1.0f - saturate(Radius)) * min(HalfExtent.x, HalfExtent.y);
+}
+
+/**
+ * Where a pixel sits in the shoreline's own frame: x runs along the bank, y runs away from it.
+ *
+ * This is what a foam texture wants and what the surface detail cannot give it. The detail scrolls
+ * with the water, so a texture sampled in its coordinates streaks along the current wherever the
+ * bank happens to be - and foam does the opposite, streaking perpendicular to the shore because that
+ * is the direction the water ran up it. Sampling against distance-from-bank puts the streaks the
+ * right way round on every side of a body at once.
+ *
+ * Scale is the world size the texture tiles over.
+ */
+float2 MobWaterShoreUVsBox(float2 UV, float2 HalfExtent, float EdgeDistance, float Scale)
+{
+	const float2 Centred = (UV - 0.5f) * 2.0f * HalfExtent;
+	const float2 Inset = HalfExtent - abs(Centred);
+
+	// Whichever bank is nearer decides which world axis runs along the shore. They swap over a
+	// corner's diagonal, which is where the texture turns with the shoreline instead of shearing.
+	const float Along = Inset.x < Inset.y ? Centred.y : Centred.x;
+
+	return float2(Along, EdgeDistance) / max(Scale, 1.0f);
+}
+
+/**
+ * The same, for a disc, where "along" is arc length.
+ *
+ * The turn count is rounded to a whole number so the texture meets itself where the angle wraps.
+ * Left unrounded there is a visible join down one radius that no amount of tiling hides.
+ */
+float2 MobWaterShoreUVsRadial(float2 UV, float2 HalfExtent, float EdgeDistance, float Scale)
+{
+	const float2 Centred = UV - 0.5f;
+	const float Radius = min(HalfExtent.x, HalfExtent.y);
+	const float Tile = max(Scale, 1.0f);
+
+	const float Turns = max(round(2.0f * PI * Radius / Tile), 1.0f);
+	const float Along = atan2(Centred.y, Centred.x) * (Turns / (2.0f * PI));
+
+	return float2(Along, EdgeDistance / Tile);
+}
+
+/**
+ * The same, for a spline body, where the mesh carries the coordinate.
+ *
+ * A river's mesh is a ribbon and its U already runs along the bank, so this is exact. A closed lake
+ * is a grid over its bounding box and its U is only the grid's, so the streaks stay perpendicular to
+ * the bank - which is the part that matters - while their spacing along it varies with the shape.
+ */
+float2 MobWaterShoreUVsSpline(float2 UV, float EdgeDistance, float Scale)
+{
+	return float2(UV.x * MOB_WATER_SHORE_REFERENCE, EdgeDistance) / max(Scale, 1.0f);
+}
+
+/**
+ * Splits the packed foam noise slot into how far the foam edge wanders and how textured the foam is.
+ *
+ * Two values in one float because the custom primitive data is full at the engine's thirty six. The
+ * whole part is the wander in hundredths, the fraction is the texture amount.
+ */
+void MobWaterUnpackFoamNoise(float Packed, out float NoiseAmount, out float TextureAmount)
+{
+	const float Whole = floor(Packed);
+
+	NoiseAmount = Whole * 0.01f;
+	TextureAmount = Packed - Whole;
+}
+
+/**
+ * Splits the packed foam edge slot into how wide the edge line is and how opaque the foam is.
+ *
+ * Paired for the same reason as the one above: the primitive data is full at the engine's thirty
+ * six, so a new value has to share. The whole part is the edge width in hundredths, the fraction is
+ * the opacity.
+ */
+void MobWaterUnpackFoamEdge(float Packed, out float EdgeWidth, out float Opacity)
+{
+	const float Whole = floor(Packed);
+
+	EdgeWidth = Whole * 0.01f;
+	Opacity = Packed - Whole;
+}
+
+/**
+ * How much water is between this pixel and what is behind it, along the view ray.
+ *
+ * Along the ray rather than straight down, deliberately: this feeds absorption, and absorption is
+ * how far the light actually travelled through water, which is the slanted distance. Using the
+ * vertical depth instead makes a lake look uniformly shallow at grazing angles, which is exactly
+ * where a real one looks deepest.
+ */
+float MobWaterColumn(float SceneDepth, float PixelDepth)
+{
+	return max(SceneDepth - PixelDepth, 0.0f);
+}
+
+/**
+ * Water colour by how much of it there is.
+ *
+ * Exponential rather than linear because that is what absorption does, and the difference shows: a
+ * linear fade puts a visible band where it reaches the far colour, and an exponential one never
+ * quite arrives, so there is no band to see.
+ */
+float3 MobWaterAbsorb(float3 ShallowColor, float3 DeepColor, float Column, float FadeDepth)
+{
+	const float T = FadeDepth > 1e-4f ? saturate(1.0f - exp(-Column / FadeDepth)) : 1.0f;
+	return lerp(ShallowColor, DeepColor, T);
+}
+
+/**
+ * The stylized fork: depth becomes a coordinate into a gradient rather than a blend of two colours.
+ *
+ * Returns where to read the ramp. One tap, any palette, and hard bands if the ramp has them - which
+ * is the whole difference between water that reads as painted and water that reads as measured.
+ */
+float MobWaterGradientCoord(float Column, float FadeDepth)
+{
+	return FadeDepth > 1e-4f ? saturate(1.0f - exp(-Column / FadeDepth)) : 1.0f;
+}
+
+/**
+ * How opaque the surface is, by how much water is behind it.
+ *
+ * Separate from the colour fade so a body can be clear and deeply coloured, or milky and shallow.
+ * Tying them together is what makes stylized water impossible to tune.
+ */
+float MobWaterOpacity(float Column, float ClarityDepth, float MinOpacity)
+{
+	const float FromDepth = ClarityDepth > 1e-4f ? saturate(1.0f - exp(-Column / ClarityDepth)) : 1.0f;
+
+	// A floor, because depth alone cannot make shallow water opaque.
+	//
+	// Opacity here is how much water is in front of the bed, which is physically right and is the
+	// wrong model for a surface that is meant to read as a colour. A shallow pool has almost no water
+	// in it, so it is almost transparent however low the clarity is set - and what shows through is
+	// the ground, distorted by the surface normal, which reads as the water being textured. No amount
+	// of tuning clarity reaches 1 on a puddle; this does.
+	return saturate(max(FromDepth, MinOpacity));
+}
+
+/**
+ * Foam where the water runs out.
+ *
+ * Driven by the column rather than by distance to the mesh edge, so foam follows whatever the water
+ * is actually lapping against - a rock standing in a pond gets a ring without anyone drawing one.
+ *
+ * Contrasted into a band rather than returned as a linear ramp. A ramp over a pond shallower than
+ * FoamDepth covers the whole surface in half-strength foam, which multiplied by the foam noise reads
+ * as scales rather than as anything floating - and it looks like a broken texture, not like a value
+ * being too large. The band means the worst an oversized FoamDepth can do is put the line in the
+ * wrong place.
+ */
+/**
+ * A band of foam, with the noise moving its edge rather than dimming its middle.
+ *
+ * This is the whole difference between foam that reads as drawn and foam that reads as a texture
+ * lying on water. Multiplying noise into the result varies how white the foam is, which is not
+ * something foam does - foam is white, and what varies is where it stops. Adding the noise to the
+ * distance instead leaves a solid band with an edge that wanders, which is what a shoreline is.
+ *
+ * Sharpness then decides how hard that edge is: low is a wet fade up a beach, high is the cut line
+ * of a stylized surface.
+ */
+float MobWaterFoamBand(float Distance, float Width, float Noise, float NoiseAmount, float Sharpness)
+{
+	if (Width <= 1e-4f)
+	{
+		return 0.0f;
+	}
+
+	const float Wandered = Distance + (Noise - 0.5f) * NoiseAmount * Width;
+	const float T = saturate(1.0f - Wandered / Width);
+
+	return saturate((T - 0.5f) * max(Sharpness, 1.0f) + 0.5f);
+}
+
+/**
+ * Foam cut into discrete steps.
+ *
+ * Packed carries both halves of the control, because there is no second slot to put the other in:
+ * its whole part is the band count and its fraction is how much of each band is cut away. A count
+ * under one leaves the foam alone, which is what gives a realistic surface its gradient; anything
+ * else quantises it, which is what gives a stylized surface the concentric rings of a ripple - the
+ * references that look painted are painted in a small number of tones, and this is that.
+ */
+float MobWaterFoamBands(float Foam, float Packed)
+{
+	const float Bands = floor(Packed);
+	const float Separation = Packed - Bands;
+
+	if (Bands < 1.0f || Foam <= 1e-4f)
+	{
+		return Foam;
+	}
+
+	const float Scaled = saturate(Foam) * Bands;
+	const float Stepped = saturate(ceil(Scaled) / Bands);
+
+	if (Separation <= 1e-4f)
+	{
+		return Stepped;
+	}
+
+	// Separation cuts the tail off each step rather than dimming it, so water shows between the
+	// bands instead of the steps merging into one band with brightness changes in it.
+	const float Width = saturate(1.0f - Separation);
+
+	// Widened by a pixel so a ring a long way off does not alias into a dotted line, and held under
+	// half the band so a steep foam ramp cannot widen the cut until every band disappears.
+	const float Edge = min(fwidth(Scaled), Width * 0.5f) + 1e-4f;
+
+	return Stepped * (1.0f - smoothstep(Width - Edge, Width + Edge, frac(Scaled)));
+}
+
+
+#define MOB_WATER_EXCLUSIONS 4
+
+/**
+ * How much water one volume keeps out of a point, 0 outside and 1 fully excluded.
+ *
+ * A is (CentreX, CentreY, HalfX, HalfY) and B is (CosYaw, SinYaw, IsRectangular, Strength). The
+ * rotation arrives as its cosine and sine rather than as an angle, because it is the same for every
+ * pixel in the volume and working it out per pixel is a sincos nobody needed.
+ */
+float MobWaterExclusionAt(float2 WorldXY, float4 A, float4 B, float Softness)
+{
+	if (B.w <= 0.0f)
+	{
+		return 0.0f;
+	}
+
+	const float2 Offset = WorldXY - A.xy;
+
+	// Into the volume's own frame. The CPU applies the same rotation, so a query and a pixel agree
+	// about where the edge is even on a hull that is turning.
+	const float2 Local = float2(
+		Offset.x * B.x + Offset.y * B.y,
+		-Offset.x * B.y + Offset.y * B.x);
+
+	float Inside;
+	if (B.z < 0.5f)
+	{
+		Inside = A.z - length(Local);
+	}
+	else
+	{
+		Inside = min(A.z - abs(Local.x), A.w - abs(Local.y));
+	}
+
+	// Softened over a distance rather than a fraction, so a long thin hull fades over the same
+	// number of centimetres at its bow as along its side.
+	return saturate(Inside / max(Softness, 1.0f)) * B.w;
+}
+
+/** The most any of the four volumes excludes. Whichever removes most water is the one that decides. */
+float MobWaterExclusion(float2 WorldXY,
+	float4 A0, float4 B0, float4 A1, float4 B1,
+	float4 A2, float4 B2, float4 A3, float4 B3,
+	float4 Softness)
+{
+	float Out = MobWaterExclusionAt(WorldXY, A0, B0, Softness.x);
+	Out = max(Out, MobWaterExclusionAt(WorldXY, A1, B1, Softness.y));
+	Out = max(Out, MobWaterExclusionAt(WorldXY, A2, B2, Softness.z));
+	Out = max(Out, MobWaterExclusionAt(WorldXY, A3, B3, Softness.w));
+	return saturate(Out);
+}
+
+/**
+ * Where the bed is, in world space, for the pixel being shaded.
+ *
+ * Recovered from the water column that has already been worked out, rather than from the depth
+ * buffer a second time. CameraVector points from the surface back towards the eye, so stepping the
+ * other way by the column arrives at whatever the water is sitting on.
+ *
+ * Approximate where the two depths are measured to a plane rather than along the ray, and that does
+ * not matter: this positions a caustic, and a caustic that is a few centimetres out on the bed of a
+ * pond is a caustic nobody can fault.
+ */
+float3 MobWaterBedPosition(float3 SurfaceWorld, float3 CameraVector, float Column)
+{
+	return SurfaceWorld - normalize(CameraVector) * Column;
+}
+
+/**
+ * Where to read the two caustic layers, and how much of them to keep.
+ *
+ * Two layers scrolling against each other, because one is a texture sliding over the bed and reads
+ * as exactly that. Taking the smaller of the two is what makes the web thin: a bright line survives
+ * only where both layers agree there is one, which is also how light actually converges.
+ */
+void MobWaterCausticUVs(float2 BedXY, float Time, float Scale, float2 Flow, float ScrollSpeed,
+	out float2 UVA, out float2 UVB)
+{
+	const float2 Drift = Flow * Time * 0.35f;
+	const float2 Base = (BedXY + Drift) / max(Scale, 1.0f);
+
+	UVA = Base + float2(0.014f, 0.009f) * Time * ScrollSpeed;
+	UVB = Base * 1.37f - float2(0.011f, 0.017f) * Time * ScrollSpeed;
+}
+
+/**
+ * The caustic that reaches this pixel.
+ *
+ * Faded out with depth, because caustics are focused light and focus is lost as the column deepens -
+ * and faded out at the bank, where the water is too thin to bend anything. Without both it reads as
+ * a texture printed on the ground.
+ */
+float MobWaterCaustics(float LayerA, float LayerB, float Column, float FadeDepth, float ShoreFade, float Strength)
+{
+	if (Strength <= 0.0f)
+	{
+		return 0.0f;
+	}
+
+	const float Web = min(LayerA, LayerB);
+
+	const float Deep = 1.0f - saturate(Column / max(FadeDepth, 1.0f));
+	const float Thin = saturate(ShoreFade * 3.0f);
+
+	return Web * Deep * Thin * Strength;
+}
+
+/**
+ * Two normals combined, without either flattening the other.
+ *
+ * The whiteout blend: the tangents add and the up components multiply. Averaging two normals instead
+ * pulls both towards straight up, so detail added to a wave takes the wave out as it goes in - the
+ * surface gets busier and flatter at the same time, which is the exact opposite of the intent.
+ */
+float3 MobWaterBlendNormals(float3 Base, float3 Detail)
+{
+	return normalize(float3(Base.xy + Detail.xy, max(Base.z * Detail.z, 1e-4f)));
+}
+
+/**
+ * Where the two detail normals are read from.
+ *
+ * Two sets of coordinates at incommensurate scales and speeds. One tiling texture scrolled once is a
+ * pattern sliding across the water and reads as a printed sheet being dragged; two at a ratio that
+ * never comes back into step never repeats visibly, which is the whole trick.
+ *
+ * Coordinates are in world units divided by the scale, so a body of water can be resized without the
+ * detail changing size with it.
+ */
+void MobWaterDetailUVs(float2 WorldXY, float Time, float ScaleA, float ScaleB, float2 Flow,
+	float ScrollSpeed, out float2 UVA, out float2 UVB)
+{
+	const float2 Drift = Flow * Time;
+
+	// Scrolled by a rate that can be turned off. Water with no flow and no waves still has a surface
+	// that moves, so the two layers drift on their own - but hard coding that rate means a body set
+	// to be still is not still, and there is nothing in the details panel that explains why.
+	const float2 Wander = float2(0.031f, 0.017f) * Time * ScrollSpeed;
+
+	UVA = (WorldXY + Drift) / max(ScaleA, 1.0f) + Wander;
+	UVB = (WorldXY + Drift) / max(ScaleB, 1.0f) - Wander * float2(0.68f, 2.18f);
+}
+
+/**
+ * Where a direction lands on a long-latitude sky texture.
+ *
+ * Rotation is turns, not radians, so a level can spin its sky to line up with its sun by typing a
+ * fraction rather than a multiple of pi.
+ */
+float2 MobWaterLongLatUV(float3 Direction, float Rotation)
+{
+	const float3 Dir = normalize(Direction);
+
+	float2 UV;
+	UV.x = atan2(Dir.y, Dir.x) / (2.0f * MOB_WATER_PI) + 0.5f + Rotation;
+	UV.y = acos(clamp(Dir.z, -1.0f, 1.0f)) / MOB_WATER_PI;
+
+	return UV;
+}
+
+/**
+ * How much of a surface reflects rather than transmits, by how obliquely it is seen.
+ *
+ * Schlick against water's own F0 of about 0.02. This is the single strongest cue that a surface is
+ * water: almost nothing reflects when looked at from above, and almost everything does at a grazing
+ * angle, which is why a lake is a mirror at the far shore and a window at your feet. Without it a
+ * reflection is a uniform sheen and reads as polished stone.
+ */
+float MobWaterFresnel(float3 Normal, float3 ViewDirection)
+{
+	const float Facing = saturate(dot(normalize(Normal), normalize(ViewDirection)));
+	const float F0 = 0.02f;
+
+	return F0 + (1.0f - F0) * pow(1.0f - Facing, 5.0f);
+}
+
+/**
+ * The sun on the water, added rather than reflected.
+ *
+ * This renderer has its local lights off and no sky atmosphere, so a lit translucent surface has
+ * almost nothing to reflect and comes out flat dark glass however good its normal is. A Blinn-Phong
+ * lobe put straight into emissive is what puts the light back, and on water it is not really a
+ * cheat: nearly everything bright on a real surface is one specular highlight of one light source.
+ *
+ * Gloss is the exponent. Low is a wide sheen across the whole body; high is the hard sparkling
+ * scatter of a sun low over open water.
+ */
+float3 MobWaterSunGlint(float3 Normal, float3 ViewDirection, float3 SunDirection, float3 SunColor,
+	float Gloss, float Strength, float Threshold, float Break, float Density, float Emissive)
+{
+	if (Strength <= 0.0f)
+	{
+		return float3(0.0f, 0.0f, 0.0f);
+	}
+
+	// Whole glints removed, not dimmed.
+	//
+	// Thinning them by fading is what gives an even wash of half-bright marks; a surface with fewer
+	// glints has the same marks in fewer places. The noise decides which places, so the ones that
+	// survive are scattered rather than on a grid - and they stay put, because the noise is anchored
+	// to the world rather than to the screen.
+	if (Threshold > 0.0f && Break < 1.0f - saturate(Density))
+	{
+		return float3(0.0f, 0.0f, 0.0f);
+	}
+
+	// SunDirection points the way the light travels, so the vector towards the sun is its negative.
+	const float3 ToSun = -normalize(SunDirection);
+	const float3 Half = normalize(ToSun + ViewDirection);
+
+	float Lobe = pow(saturate(dot(Normal, Half)), max(Gloss, 1.0f));
+
+	// Cut into glints rather than left as a sheen.
+	//
+	// A specular lobe on water is one continuous smear, and a stylized surface reads as separate
+	// bright marks scattered over it. Breaking the lobe with noise before the cut is what separates
+	// them: without it the threshold produces one large blob with a hard edge, which is worse than
+	// the smear it replaced.
+	if (Threshold > 0.0f)
+	{
+		Lobe *= lerp(0.45f, 1.55f, Break);
+		Lobe = smoothstep(Threshold, Threshold + 0.04f, Lobe);
+	}
+
+	// Faded out as the sun sets rather than left to shine through the ground, which is what a
+	// half-vector alone would do once the sun is below the horizon.
+	const float Above = saturate(ToSun.z * 4.0f);
+
+	// Emissive pushes a glint past what the light could account for, so it blooms and reads as a
+	// spark rather than as a bright patch of water. Above 1 it is no longer a reflection of anything,
+	// which is the point.
+	return SunColor * (Lobe * Strength * Above * max(Emissive, 0.0f));
+}
+
+/**
+ * How much of what is behind a submerged pixel survives the water between here and it.
+ *
+ * Beer-Lambert against the distance the light actually travelled, which is what makes a wall three
+ * metres away readable and the same wall at thirty metres gone. A flat tint over the whole screen
+ * gets the colour right and reads as a coloured pane of glass, because the one cue that says water
+ * is that distance takes things away.
+ *
+ * Submersion fades the whole thing in across the waterline, so a camera bobbing at the surface does
+ * not flicker between two completely different images.
+ */
+float MobWaterUnderwaterOpacity(float SceneDistance, float Clarity, float Submersion)
+{
+	const float Absorbed = 1.0f - exp(-SceneDistance / max(Clarity, 1.0f));
+	return saturate(Absorbed) * saturate(Submersion);
+}
+
+/**
+ * Foam on the crests, from how hard the surface is folding.
+ *
+ * The same term the wave normal is built from, so it lands on the crest rather than near it. A still
+ * body never reaches the threshold, which is why a pond gets shoreline foam and no white caps
+ * without anyone turning one of them off.
+ */
+float MobWaterCrestFoam(float Fold, float Threshold)
+{
+	return Threshold >= 1.0f ? 0.0f : saturate((Fold - Threshold) / max(1.0f - Threshold, 1e-4f));
+}

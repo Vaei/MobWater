@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Characters in it &middot; MobWater</title>
+<link rel="icon" href="assets/icon.png">
+<link rel="stylesheet" href="assets/docs.css">
+<script>try{var t=localStorage.getItem('mob-theme');document.documentElement.dataset.theme=t||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light')}catch(e){}</script>
+<script src="assets/site.js" defer></script>
+<script src="assets/docs.js" defer></script>
+</head>
+<body>
+<main>
+
+<h1>Characters in it</h1>
+<p class="lede">Immersion, wading, swimming, splashing and the ripples left behind. One component, and a seam where your movement code goes.</p>
+
+<p>Add <b>Mob Water Interaction</b> to a character. Every tick it asks where the surface is at the measure point, and everything else follows from the answer.</p>
+
+<div data-shot="characters.wade"></div>
+
+<h2>It spawns nothing</h2>
+
+<div class="important">
+No effects, no sounds. A plugin cannot know what your splash looks like, so this says <b>where</b> and <b>how hard</b>, and the project decides what that means. Bind <code>OnSplash</code> to a Niagara spawn and you have splashes; bind nothing and you have a component that costs one query a tick.
+</div>
+
+<div class="tw"><table class="free">
+<thead><tr><th>Event</th><th>Fires with</th><th>When</th></tr></thead>
+<tbody>
+<tr><td><code>OnEnteredWater</code></td><td>location, downward speed</td><td>crossing in. The speed is what decides whether this was a step or a fall, and therefore how big the splash should be</td></tr>
+<tr><td><code>OnExitedWater</code></td><td>location, speed</td><td>crossing out</td></tr>
+<tr><td><code>OnSplash</code></td><td>location, strength</td><td>anything worth a splash, including the crossings above</td></tr>
+</tbody>
+</table></div>
+
+<div data-shot="characters.splash"></div>
+
+<h3>Footfalls</h3>
+
+<p><code>Splash(Location, Strength)</code> is meant to be called by whatever knows when a foot lands. An animation notify knows; this component would have to guess. It splashes and pushes the surface in one call.</p>
+
+<h2>Properties</h2>
+
+<div class="tw"><table class="free">
+<thead><tr><th>Property</th><th>Default</th><th></th></tr></thead>
+<tbody>
+<tr><td><b>Measure Offset</b></td><td>0, 0, -88 cm</td><td>where on the owner the surface is measured against. Usually the feet</td></tr>
+<tr><td><b>Wade Depth</b></td><td>30 cm</td><td>how deep before it is wading rather than walking through a puddle</td></tr>
+<tr><td><b>Swim Depth</b></td><td>130 cm</td><td>how deep before it is swimming</td></tr>
+<tr><td><b>Wade Speed Scale</b></td><td>0.45</td><td>how much speed is left at the deepest wade. Below about a third it stops reading as effort and starts reading as the controls having broken</td></tr>
+<tr><td><b>Drive Movement</b></td><td>on</td><td>off, it only reports</td></tr>
+<tr><td><b>Make Ripples</b></td><td>on</td><td>whether the owner leaves ripples behind it</td></tr>
+<tr><td><b>Ripple Radius</b></td><td>70 cm</td><td></td></tr>
+<tr><td><b>Ripple Strength</b></td><td>0.6</td><td></td></tr>
+</tbody>
+</table></div>
+
+<h2>Reading the state</h2>
+
+<div class="tw"><table class="free">
+<tbody>
+<tr><td><code>IsInWater()</code></td><td>in water at all</td></tr>
+<tr><td><code>IsSwimming()</code></td><td>deep enough to swim</td></tr>
+<tr><td><code>GetImmersionDepth()</code></td><td>how far the measure point is below the surface. Negative above it</td></tr>
+<tr><td><code>GetWaterInfo()</code></td><td>the whole answer as of the last tick - surface, normal, depth, flow, fold</td></tr>
+</tbody>
+</table></div>
+
+<h2>The movement seam</h2>
+
+<p>MobWater has no idea what movement component your project uses - stock, a fork, something written from scratch - and guessing wrong would be worse than doing nothing. So the movement half is deliberately thin and virtual.</p>
+
+<div class="tw"><table class="free">
+<thead><tr><th>Override</th><th>Default does</th></tr></thead>
+<tbody>
+<tr><td><code>ApplyWade(Immersion01)</code></td><td>scales a stock <code>UCharacterMovementComponent</code>'s walk speed, 0 dry and 1 at the swim line</td></tr>
+<tr><td><code>ApplySwimming(bool)</code></td><td>sets the stock movement mode</td></tr>
+</tbody>
+</table></div>
+
+<p>Both are <code>BlueprintNativeEvent</code>, so a Blueprint subclass can take them over without C++. <b>Override, and call nothing in the parent</b> - the defaults are for the stock component and nothing else.</p>
+
+<div data-shot="characters.swim"></div>
+
+<div class="note">
+The walk speed before any of this touched it is captured once, on the first wade, not every tick. Reading it back after the scale has been applied and calling that the original is how a character ends up permanently slower every time it steps in a puddle.
+</div>
+
+<h2>Ripples from the feet</h2>
+
+<p>With <b>Make Ripples</b> on, the component owns a <a href="ripples.html">disturbance component</a> and drives it. It is not persistent, so a character standing still lets the water settle - which is what still water does, and what a permanently churning puddle underfoot does not.</p>
+
+<h2>Networking</h2>
+
+<p>Everything here reads <code>GetWaterInfoAtLocation</code>, which is a pure function of position and time. Given a <a href="waves.html#the-clock">synchronised clock</a>, two machines get the same immersion depth for the same character position, so wade and swim transitions happen on the same frame on both.</p>
+
+<div class="warn">
+The ripples the feet leave are not in that answer and cannot be. They live in a render target that a dedicated server does not have. See <a href="ripples.html#not-authoritative">the field is never authoritative</a>.
+</div>
+
+<h2>Exclusion</h2>
+
+<p>An exclusion volume with <b>Blocks Submersion</b> on marks a point as dry, and the query does not fold that in. A character that has to be dry inside a hull needs to ask <code>UMobWaterSubsystem::GetExclusionAtLocation</code> as well - see <a href="exclusion.html#asking-on-the-cpu">Exclusion</a>.</p>
+
+<p><a class="cta" href="queries.html">Now ships in it &rarr;</a></p>
+
+</main>
+</body>
+</html>

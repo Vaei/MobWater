@@ -1,0 +1,232 @@
+// Copyright (c) Jared Taylor
+
+#pragma once
+
+/*
+ * /MobWater/Public/MobWaterField.ush
+ *
+ * The ripple field: one top-down grid every body of water reads, holding what is moving on it.
+ *
+ * R is the height now, G is the height a step ago, B is foam left behind, and A is unused for now and
+ * is where exclusion will go. The whole cost is fixed by the target's resolution, so a second body of
+ * water reading it is not a second cost, and a hundred things standing in it are not a hundred costs
+ * either.
+ *
+ * It is a wave equation rather than a decal that fades, and that is the entire difference: a ripple
+ * spreads, slows, reflects and interferes because the maths does those things, not because anyone
+ * authored them.
+ *
+ * Both heights are signed and are stored biased into 0..1, because the step is drawn by a UI domain
+ * material - the one domain DrawMaterialToRenderTarget will render - and a UI material's output is
+ * clamped to 0..1 on the way out whatever the target's format is. Stored raw, every trough is clamped
+ * to zero, and what is left is not a wave equation at all: it is diffusion, which spreads a stamp
+ * into a smear that follows whatever made it and never once oscillates, reflects or interferes.
+ */
+
+/** How far the field may travel from flat before it is clipped, in the units the surface reads. */
+#define MOB_WATER_RIPPLE_RANGE 2.0f
+
+/** Flat. What an untouched field, and everything outside it, has to hold. */
+#define MOB_WATER_RIPPLE_NEUTRAL 0.5f
+
+/** A stored 0..1 channel back to the signed value it carries. */
+float MobWaterFieldDecode(float Stored)
+{
+	return (Stored - MOB_WATER_RIPPLE_NEUTRAL) * (2.0f * MOB_WATER_RIPPLE_RANGE);
+}
+
+/** A difference between two stored channels, which needs the scale but not the bias. */
+float MobWaterFieldDecodeDelta(float Delta)
+{
+	return Delta * (2.0f * MOB_WATER_RIPPLE_RANGE);
+}
+
+/** A signed value into the 0..1 a UI material is allowed to write. */
+float MobWaterFieldEncode(float Value)
+{
+	const float Clamped = clamp(Value, -MOB_WATER_RIPPLE_RANGE, MOB_WATER_RIPPLE_RANGE);
+	return Clamped / (2.0f * MOB_WATER_RIPPLE_RANGE) + MOB_WATER_RIPPLE_NEUTRAL;
+}
+
+/** What one unit of signed value is worth added straight onto a stored channel. */
+#define MOB_WATER_FIELD_SCALE (1.0f / (2.0f * MOB_WATER_RIPPLE_RANGE))
+
+/**
+ * How much of a stamp reaches a texel. Stamp is (u, v, radius in UV, strength).
+ *
+ * Smoothstepped rather than linear, because a cone has a point on it and a point is a single texel
+ * pushed twice as far as its neighbours - which the wave equation carries outwards as a spike that
+ * never rounds off.
+ */
+float MobWaterStampFalloff(float2 UV, float4 Stamp)
+{
+	const float Edge = Stamp.z > 0.0f ? saturate(1.0f - length(UV - Stamp.xy) / Stamp.z) : 0.0f;
+	return Edge * Edge * (3.0f - 2.0f * Edge);
+}
+
+/**
+ * Every push waiting this step, added to the field on its way back into the history.
+ *
+ * Drawn as a material rather than stamped with a canvas. A canvas draw and a material draw are two
+ * paths to the same target and do not reliably land in the order they were asked for, so a stamp put
+ * in with one is erased by the other having read the target before it arrived - which presents as a
+ * field that never receives a single ripple while every log along the way says it was stamped.
+ *
+ * An empty slot has a radius of zero and contributes nothing, so the caller fills what it has and
+ * leaves the rest black. Foam is packed four to a vector because it is one value per stamp and a
+ * scalar parameter each would be eight more sets a frame for four floats' worth of data.
+ */
+float4 MobWaterRippleStamp(float4 Field, float2 UV,
+	float4 S0, float4 S1, float4 S2, float4 S3, float4 S4, float4 S5, float4 S6, float4 S7,
+	float4 FoamA, float4 FoamB)
+{
+	float Height = 0.0f;
+	float Foam = 0.0f;
+	float Weight = 0.0f;
+
+	Weight = MobWaterStampFalloff(UV, S0); Height += Weight * S0.w; Foam = max(Foam, Weight * FoamA.x);
+	Weight = MobWaterStampFalloff(UV, S1); Height += Weight * S1.w; Foam = max(Foam, Weight * FoamA.y);
+	Weight = MobWaterStampFalloff(UV, S2); Height += Weight * S2.w; Foam = max(Foam, Weight * FoamA.z);
+	Weight = MobWaterStampFalloff(UV, S3); Height += Weight * S3.w; Foam = max(Foam, Weight * FoamA.w);
+	Weight = MobWaterStampFalloff(UV, S4); Height += Weight * S4.w; Foam = max(Foam, Weight * FoamB.x);
+	Weight = MobWaterStampFalloff(UV, S5); Height += Weight * S5.w; Foam = max(Foam, Weight * FoamB.y);
+	Weight = MobWaterStampFalloff(UV, S6); Height += Weight * S6.w; Foam = max(Foam, Weight * FoamB.z);
+	Weight = MobWaterStampFalloff(UV, S7); Height += Weight * S7.w; Foam = max(Foam, Weight * FoamB.w);
+
+	// Both heights move by the same amount, which is a surface displaced and let go rather than one
+	// thrown. Green is where this texel was a step ago, so a stamp that reaches red alone is a
+	// velocity: the step reads a surface already moving upwards and keeps moving it, and a push a
+	// fifth of the range high rails at the top of it inside a quarter of a second. Strength then means
+	// nothing an author can predict, because what it produces depends on how long the ripple took to
+	// spread far enough to answer back.
+	//
+	// Foam is taken rather than added, so a stamp's own Foam is how white its wake gets and not how
+	// fast it gets there. Consecutive stamps overlap by most of their radius, so anything that
+	// accumulates - a sum, or a blend towards white - reaches white within a few strides whatever the
+	// amount is set to, and solid white has no shape left in it: a hard edged slab dragged behind
+	// whatever made it. Taking the larger leaves the falloff's own profile standing.
+	const float Displacement = Height * MOB_WATER_FIELD_SCALE;
+
+	return float4(
+		saturate(Field.r + Displacement),
+		saturate(Field.g + Displacement),
+		max(Field.b, saturate(Foam)),
+		1.0f);
+}
+
+/**
+ * One step, on a field that is scrolling under the view.
+ *
+ * Scroll is how far the field's origin moved since the last step, in field units. The previous frame
+ * is read at an offset by that much, which is what lets the window follow the camera while what is
+ * inside it stays anchored to the world. The caller snaps the origin to whole texels first - a
+ * fractional scroll resamples the field every frame, and a wave equation reading its own resampled
+ * output smears itself into a blur within a second.
+ *
+ * Speed is the wave speed as a fraction of the grid, where 0.5 is one texel a step and as fast as
+ * this scheme travels. Damping is what makes it settle, and has to stay under one.
+ */
+float4 MobWaterRippleStep(Texture2D History, SamplerState HistorySampler, float2 UV, float2 Scroll,
+	float TexelSize, float Speed, float Damping)
+{
+	const float2 Source = UV + Scroll;
+
+	const float4 Here = Texture2DSample(History, HistorySampler, Source);
+
+	const float Centre = MobWaterFieldDecode(Here.r);
+	const float Previous = MobWaterFieldDecode(Here.g);
+
+	const float Left = MobWaterFieldDecode(Texture2DSample(History, HistorySampler, Source + float2(-TexelSize, 0.0f)).r);
+	const float Right = MobWaterFieldDecode(Texture2DSample(History, HistorySampler, Source + float2(TexelSize, 0.0f)).r);
+	const float Down = MobWaterFieldDecode(Texture2DSample(History, HistorySampler, Source + float2(0.0f, -TexelSize)).r);
+	const float Up = MobWaterFieldDecode(Texture2DSample(History, HistorySampler, Source + float2(0.0f, TexelSize)).r);
+
+	const float DownLeft = MobWaterFieldDecode(Texture2DSample(History, HistorySampler, Source + float2(-TexelSize, -TexelSize)).r);
+	const float DownRight = MobWaterFieldDecode(Texture2DSample(History, HistorySampler, Source + float2(TexelSize, -TexelSize)).r);
+	const float UpLeft = MobWaterFieldDecode(Texture2DSample(History, HistorySampler, Source + float2(-TexelSize, TexelSize)).r);
+	const float UpRight = MobWaterFieldDecode(Texture2DSample(History, HistorySampler, Source + float2(TexelSize, TexelSize)).r);
+
+	// Green is where this texel was a step ago, not a velocity. The wave equation written over two
+	// heights instead of a height and its integral is stable for any damping under one, where
+	// integrating a velocity is only conditionally stable and, at the rate a stamp is added and a
+	// border is held flat, does not stay inside those conditions - it winds up until the whole field
+	// is pinned at a rail, which reads as water that has no ripples in it at all.
+	//
+	// Speed scales the curvature term and nothing else. It is the square of how far a ripple travels
+	// in a step, and it has to stay off the rest of the expression: 2h - previous is the surface
+	// carrying its own motion forward, and anything that scales that scales the momentum instead of
+	// the speed. The result damps out where it stands rather than travelling - no crest leaves, no
+	// trough follows, and what is left decays at exactly the damping rate, which reads as a decal
+	// fading rather than a ripple.
+	// Nine points, not five. The four-neighbour Laplacian carries a wave along the grid axes about a
+	// tenth faster than along its diagonals, so a ring does not stay a ring: it grows into a rounded
+	// square, and the further it travels the squarer it gets. That is a box spreading out from
+	// whatever made the ripple, and the only reason it is not seen constantly is that a footfall dies
+	// long before it has travelled far enough to show. Something entering the water does not.
+	//
+	// Weighting the corners at a sixth against the edges' two thirds cancels the leading anisotropic
+	// term, which costs four more taps on a pass that covers 256 by 256 pixels. It is also the more
+	// stable of the two, so the speed limit this is clamped to did not have to move.
+	const float Edges = Left + Right + Down + Up;
+	const float Corners = DownLeft + DownRight + UpLeft + UpRight;
+	const float Laplacian = (4.0f * Edges + Corners - 20.0f * Centre) / 6.0f;
+
+	const float Height = (2.0f * Centre - Previous + Laplacian * Speed) * Damping;
+
+	// Foam only dries here. It is put in by whatever stamped it, so it stays where that was, and dries
+	// slower than the ripple that came with it - a wake is still visible behind something after the
+	// water under it has gone flat. Generating it from how fast the surface is moving instead paints
+	// every crest the ripple reaches, which is a plume spreading outwards rather than a trail behind.
+	const float Foam = saturate(Here.b) * 0.985f;
+
+	// Outside the field the previous frame reads as clamped edge, which would otherwise pump the
+	// border: whatever was at the edge gets copied inwards forever and the field slowly fills. Kept
+	// tighter than the fade the surface reads through, so what this holds flat is already invisible.
+	const float2 Edge = min(Source, 1.0f - Source);
+	const float Held = saturate(min(Edge.x, Edge.y) * 40.0f);
+	const float Inside = Held * Held * (3.0f - 2.0f * Held);
+
+	return float4(
+		lerp(MOB_WATER_RIPPLE_NEUTRAL, MobWaterFieldEncode(Height), Inside),
+		lerp(MOB_WATER_RIPPLE_NEUTRAL, MobWaterFieldEncode(Centre), Inside),
+		Foam * Inside,
+		1.0f);
+}
+
+/**
+ * What the surface reads back out of the field.
+ *
+ * Returns the height, and the slope worked out from its neighbours, because a surface needs the
+ * normal rather than the height - a ripple you cannot see the side of is not a ripple.
+ */
+void MobWaterRippleSample(Texture2D Field, SamplerState FieldSampler, float2 WorldXY, float4 Area,
+	float TexelSize, out float Height, out float2 Slope, out float Foam)
+{
+	// Area is (OriginX, OriginY, Extent, 1 / Extent).
+	const float2 UV = (WorldXY - Area.xy) * Area.w + 0.5f;
+
+	// Everything outside the field is still water. Without this the clamped edge of the target
+	// stretches the last ripple out to the horizon in a band.
+	//
+	// Smoothstepped, and over a seventh of the field rather than a twentieth, because this is the
+	// only thing standing between a bounded field and a visible square drawn on the water. Still
+	// water is a mirror and rippled water is not, so the two sides of this boundary are as far apart
+	// as any two shadings of the surface get - and a linear ramp leaves a crease where it reaches one
+	// at each end, which is a straight edge in the reflection that follows the camera around. The
+	// cost is reach: the outer seventh is no longer at full strength, so a field two thousand across
+	// carries its ripples about seventeen metres rather than twenty.
+	const float2 Edge = min(UV, 1.0f - UV);
+	const float Fade = saturate(min(Edge.x, Edge.y) * 7.0f);
+	const float Inside = Fade * Fade * (3.0f - 2.0f * Fade);
+
+	const float4 Centre = Texture2DSample(Field, FieldSampler, UV);
+
+	const float Left = Texture2DSample(Field, FieldSampler, UV + float2(-TexelSize, 0.0f)).r;
+	const float Right = Texture2DSample(Field, FieldSampler, UV + float2(TexelSize, 0.0f)).r;
+	const float Down = Texture2DSample(Field, FieldSampler, UV + float2(0.0f, -TexelSize)).r;
+	const float Up = Texture2DSample(Field, FieldSampler, UV + float2(0.0f, TexelSize)).r;
+
+	Height = MobWaterFieldDecode(Centre.r) * Inside;
+	Slope = float2(MobWaterFieldDecodeDelta(Right - Left), MobWaterFieldDecodeDelta(Up - Down)) * Inside;
+	Foam = Centre.b * Inside;
+}

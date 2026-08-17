@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Waves &middot; MobWater</title>
+<link rel="icon" href="assets/icon.png">
+<link rel="stylesheet" href="assets/docs.css">
+<script>try{var t=localStorage.getItem('mob-theme');document.documentElement.dataset.theme=t||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light')}catch(e){}</script>
+<script src="assets/site.js" defer></script>
+<script src="assets/docs.js" defer></script>
+</head>
+<body>
+<main>
+
+<h1>Waves</h1>
+<p class="lede">A sum of Gerstner waves, evaluated identically on the CPU and the GPU, from a clock you supply.</p>
+
+<h2>A still body is not a small ocean</h2>
+
+<p>Wave parameters are per body, and that is the difference between water that reads as a pond and water that reads as a bad ocean. A pond has ripples and no swell, because nothing in it has the fetch to build one. A lake has a long low chop. Only the sea gets the sea's waves.</p>
+
+<p>Three presets ship, and a newly placed body takes the one for its shape:</p>
+
+<div class="tw"><table>
+<thead><tr><th>Preset</th><th>Waves</th><th>Longest</th><th>Tallest</th><th>Choppiness</th></tr></thead>
+<tbody>
+<tr><td><code>WP_MobWater_Pond</code></td><td>2</td><td>2.6 m</td><td>1.6 cm</td><td>0.25</td></tr>
+<tr><td><code>WP_MobWater_Lake</code></td><td>3</td><td>9 m</td><td>7 cm</td><td>0.5</td></tr>
+<tr><td><code>WP_MobWater_Ocean</code></td><td>5</td><td>40 m</td><td>85 cm</td><td>1.0</td></tr>
+</tbody>
+</table></div>
+
+<div data-shot="waves.presets"></div>
+
+<div class="tip">
+Getting this wrong is the single loudest way for enclosed water to read as wrong, and no amount of tuning the amplitude fixes it. A pond carrying an ocean's swell is not a calmer ocean, it is a pond with the wrong wavelengths in it.
+</div>
+
+<h2>One wave</h2>
+
+<div class="tw"><table>
+<tr><td><b>Direction</b></td><td>which way it travels, on the horizontal plane. Normalised on use</td></tr>
+<tr><td><b>Wavelength</b></td><td>crest to crest, and <i>also what decides how fast it travels</i></td></tr>
+<tr><td><b>Amplitude</b></td><td>still surface to crest</td></tr>
+<tr><td><b>Steepness</b></td><td>how far the crest leans forward. 0 is a plain sine, 1 is as sharp as it gets without folding</td></tr>
+<tr><td><b>Phase Offset</b></td><td>where in its cycle it starts. Two waves sharing a direction need this to differ or they are one wave</td></tr>
+</table></div>
+
+<div class="important">
+There is no speed on a wave, deliberately. In deep water a wave's phase speed is fixed by its length, so a set with an authored speed per wave can be given values no sea produces - and it reads as wrong before anyone can say why. Speed comes out of the dispersion relation, from gravity and the wavelength.
+</div>
+
+<h3>The set</h3>
+
+<div class="tw"><table>
+<tr><td><b>Amplitude Scale</b></td><td>scales every wave's height</td></tr>
+<tr><td><b>Speed Scale</b></td><td>scales how fast they travel. 0 freezes the surface without flattening it</td></tr>
+<tr><td><b>Choppiness Scale</b></td><td>scales how far crests lean. 0 leaves sines, which is what a small still body wants</td></tr>
+</table></div>
+
+<p>The three scalars exist so one preset can serve a pond and a harbour at different amplitudes, rather than two sets that drift apart the first time one is tuned. A body then scales again with its own <b>Wave Amplitude</b>.</p>
+
+<div data-shot="waves.steepness"></div>
+
+<div class="note">
+Steepness is shared out across the set rather than applied per wave, so adding a ninth wave to a calm sea does not fold it. Eight waves is the ceiling: the shader unrolls to that count, so raising it is a shader change and not only a data one.
+</div>
+
+<h2>Waves lie down at the bank</h2>
+
+<p>Amplitude is weighted by how far a point is from the body's own edge, smoothly, over <b>Shore Fade Distance</b>. Without it a lake's waves keep their full height as the bank comes up and stand above dry ground at the rim. It is one multiply, and it is the difference between an edge that reads as a shoreline and one that reads as a plane intersecting terrain.</p>
+
+<div data-shot="waves.shore"></div>
+
+<div class="important">
+Distance to the edge, and not the depth of the water, however much the second sounds like the better measure. The displacement happens in the vertex shader, and a vertex shader cannot read the depth buffer - the bed is only recoverable per pixel, by which point the vertex has already moved. The edge of a box, a disc or a spline is arithmetic, so the vertex shader and the CPU query can both have it. Scene depth still does everything it can do: colour, clarity and shoreline foam are all per pixel.
+</div>
+
+<h2>The clock</h2>
+
+<p>Water time is an input. MobWater ships no clock of its own, because a clock that two machines agree on is a project's problem and every project has already solved it differently.</p>
+
+<pre><code>UMobWaterSubsystem::Get(World)-&gt;SetTimeSource(
+    FMobWaterTimeSource::CreateUObject(this, &amp;UMyClock::GetSyncedTime));</code></pre>
+
+<p>Unbound, it falls back to <code>AGameStateBase::GetServerWorldTimeSeconds</code>, which is enough to see water move and not enough to keep two machines in phase - it is corrected in steps, and a step in the clock is a step in every wave at once. Outside a game world it accumulates locally, which is what makes the viewport move without playing.</p>
+
+<h3>Folding</h3>
+
+<p>Whatever the source says is folded into <b>Time Loop Period</b> - five minutes by default - before anything reads it, and the same folded value reaches the material and every CPU query. Two reasons, and both are load-bearing:</p>
+
+<ul>
+<li>A session long enough leaves a float no fraction to work with, and the waves quantise into visible steps while nothing about the clock looks wrong.</li>
+<li>If the pixels and the physics read different clocks, buoyancy sits slightly off the surface it is drawn on, and no amount of tuning the waves closes it.</li>
+</ul>
+
+<p><code>GetWaterTime</code> is the folded value. Anything reproducing a surface later - a replay, a server checking a client's claim - wants that rather than the world's own time.</p>
+
+<h2>The same maths twice</h2>
+
+<p><code>MobWaterWaves.h</code> and <code>Shaders/Public/MobWaterWaves.ush</code> are one algorithm written twice, because a vertex shader cannot call C++ and a dedicated server has no GPU. Nothing but a test keeps them equal.</p>
+
+<p><b>Water &rarr; Verify Contract</b> evaluates both at sampled points and instants and reports the worst disagreement. The last run: <b>192 points across 3 instants, worst disagreement 0.00074 cm</b>.</p>
+
+<div data-shot="waves.parity"></div>
+
+<div class="note">
+Phase is folded on both terms before they meet, and that is not an optimisation. A world position a kilometre out times a wave number is a phase in the thousands of radians; a float carries about seven digits, so the sine of it quantises and the surface reads as faceted far from the origin and smooth near it. Folding the distance by the wavelength and the time term by a full turn is exact, because both are periods of the wave itself.
+</div>
+
+<h3>Where the surface is</h3>
+
+<p>A Gerstner wave moves a point sideways as well as up, so the height above a world XY is <i>not</i> the height of the vertex that started there. The query walks back towards the column it was asked about four times - a fixed count rather than a tolerance, so two machines take the same path to the same answer.</p>
+
+<p><a class="cta" href="techniques.html">Now the surface features &rarr;</a></p>
+
+</main>
+</body>
+</html>

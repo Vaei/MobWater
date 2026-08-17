@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Realistic &middot; MobWater</title>
+<link rel="icon" href="assets/icon.png">
+<link rel="stylesheet" href="assets/docs.css">
+<script>try{var t=localStorage.getItem('mob-theme');document.documentElement.dataset.theme=t||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light')}catch(e){}</script>
+<script src="assets/site.js" defer></script>
+<script src="assets/docs.js" defer></script>
+</head>
+<body>
+<main>
+
+<h1>Realistic</h1>
+<p class="lede">Water that reads by depth. A long absorption, foam only where water actually breaks, and the detail normal doing most of the work.</p>
+
+<p><code>WL_MobWater_Realistic</code>. The mirror image of the <a href="stylized.html">stylized</a> settlement: where that one asks to be read by shape, this one asks to be read by how much water there is.</p>
+
+<div data-shot="realistic.lake"></div>
+
+<div class="tw"><table>
+<thead><tr><th>Setting</th><th></th><th>Why</th></tr></thead>
+<tbody>
+<tr><td>Shallow Color</td><td>0.10, 0.30, 0.32</td><td>desaturated. Real water has very little colour of its own</td></tr>
+<tr><td>Deep Color</td><td>0.005, 0.04, 0.08</td><td>nearly black. Depth is what makes water dark, not a dark tint</td></tr>
+<tr><td>Fade Depth</td><td>420</td><td>long, so the grade is a gradient rather than an edge</td></tr>
+<tr><td>Clarity Depth</td><td>700</td><td></td></tr>
+<tr><td>Roughness</td><td>0.015</td><td>nearly a mirror. Water is one of the smoothest things in any scene and reading it as anything else is the fastest way to lose it</td></tr>
+<tr><td>Detail Strength</td><td>1.0</td><td>the detail normal is the surface. This is what stylized water deliberately does not have</td></tr>
+<tr><td>Macro Strength</td><td>2.2</td><td>the slow swell across the whole body, under the detail</td></tr>
+<tr><td>Foam Sharpness</td><td>2.0</td><td>soft and continuous. Real foam has no edge, it has a wet margin</td></tr>
+<tr><td>Foam Noise Amount</td><td>0.55</td><td>the edge wanders, which is what a shoreline does</td></tr>
+<tr><td>Foam Texture</td><td>on, 0.6</td><td>foam with a pattern in it, in the shoreline's frame</td></tr>
+<tr><td>Crest Foam Threshold</td><td>0.6</td><td>only where the surface really folds</td></tr>
+<tr><td>Glint Threshold</td><td>0</td><td>a continuous sheen, because that is what real water shows</td></tr>
+<tr><td>Glint Gloss</td><td>420</td><td>a tight lobe over open water</td></tr>
+<tr><td>Refraction</td><td>on, 0.35</td><td></td></tr>
+<tr><td>Waves</td><td><code>WP_MobWater_Lake</code></td><td>a long low chop, not an ocean's swell</td></tr>
+</tbody>
+</table></div>
+
+<h2>Foam in the shoreline's frame</h2>
+
+<p>This is the one preset that turns <b>Foam Texture</b> on, and it is the setting that most repays looking at closely. The pattern is sampled in a frame built from the bank: one axis runs along the shore, the other runs away from it. So the streaks are perpendicular to the water's edge on every side of the body at once.</p>
+
+<div data-shot="realistic.foam"></div>
+
+<div class="important">
+A foam texture carried by the water's own flow streaks the same way all round a pool, and looks right on exactly one side of it. That is the reason for the separate frame, and it is why the setting is a compiled permutation - the coordinates are their own arithmetic and a body with plain foam should not pay for them.
+</div>
+
+<p>Remember the cost: setting a per-body <b>Foam Texture</b> asset gives that body a dynamic material instance and takes it out of the batch. Leave it unset and the body uses the material's own texture, which is what the preset expects.</p>
+
+<h2>Detail, and where it stops working</h2>
+
+<p>Three normal scales are summed: two scrolling detail layers at different tilings, and a slow macro swell. <b>Detail Strength</b> scales the first two, <b>Macro Strength</b> the third.</p>
+
+<div data-shot="realistic.detail"></div>
+
+<div class="tw"><table>
+<tr><td><b>Detail Scroll Speed</b></td><td>how fast the detail drifts with no flow and no waves. Water with a still surface still moves. 0 gives genuinely still water, which no combination of flow and wave amplitude can produce, because neither drives this</td></tr>
+<tr><td><b>Flow Velocity</b></td><td>advects the detail and the caustics, and biases foam. It does not carry a swimmer</td></tr>
+</table></div>
+
+<div class="caution">
+Detail normals tile, and a tiling that is fine enough to read close up is a shimmering mess at distance. Judge it at the range the player actually stands, and remember mip selection under ES3.1 is not the same as under SM5.
+</div>
+
+<h2>What realism cannot have here</h2>
+
+<div class="tw"><table class="free">
+<tbody>
+<tr><td><b>No planar reflection</b></td><td>the sky is a long-latitude texture weighted by Fresnel. It reflects a sky, not a scene: a jetty does not appear upside down under itself</td></tr>
+<tr><td><b>No sky atmosphere term</b></td><td>this renderer has it off, which is part of why the glint carries so much of the lighting</td></tr>
+<tr><td><b>No spray or mist</b></td><td>crest foam says where the water is breaking; a project's own Niagara is what puts anything in the air</td></tr>
+<tr><td><b>No wet shoreline</b></td><td>the bank does not darken where water has been. That is the surface material's job - <a href="https://github.com/Vaei/MobMaterials">MobMaterials</a> carries a wetness input for it</td></tr>
+</tbody>
+</table></div>
+
+<p><a class="cta" href="surface.html">Now every parameter &rarr;</a></p>
+
+</main>
+</body>
+</html>

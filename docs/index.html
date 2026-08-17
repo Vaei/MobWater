@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MobWater</title>
+<link rel="icon" href="assets/icon.png">
+<link rel="stylesheet" href="assets/docs.css">
+<script>try{var t=localStorage.getItem('mob-theme');document.documentElement.dataset.theme=t||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light')}catch(e){}</script>
+<script src="assets/site.js" defer></script>
+<script src="assets/docs.js" defer></script>
+</head>
+<body>
+<main>
+
+<h1>MobWater</h1>
+<p class="lede">Water for mobile forward rendering path. Ponds, lakes, pools and ocean, that a character wades into and swims in. Ripples, wakes and splashes from anything that moves through it. And waves a dedicated server evaluates to the same answer the client draws.</p>
+
+<div data-shots="index.hero, index.tour"></div>
+
+<pre><code>cd YourProject/Plugins
+git clone git@github.com:Vaei/MobWater.git</code></pre>
+
+<p><a class="cta" href="install.html">Install it &rarr;</a></p>
+
+<div class="caution">
+Not officially released. Expect bugs and updates without versioning. Documentation is still filling in.
+</div>
+
+<h2>Why</h2>
+
+<p>Water that shallows at the bank, foams where it meets the shore, and shows the bed through it. Waves that lie down as they reach the shore instead of cutting through it. Ripples that spread from anything moving in the water and reflect off whatever is standing in it.</p>
+
+<p>Boats sit at the right height on the client and the server both.</p>
+
+<p>All of it costs one translucent plane, and runs anywhere - including the mobile forward path, where most water does not.</p>
+
+<div data-shot="index.depth"></div>
+
+<h2>What you get</h2>
+
+<div class="tw"><table>
+<tr><td><b>Four shapes</b></td><td>Box and disc for the pools a level actually has in it, a spline that is a lake closed and a river open, and an ocean that follows the view. Selecting one compiles only its own edge arithmetic.</td></tr>
+<tr><td><b>Water knows how deep it is</b></td><td>The bed comes from the depth buffer, so the column's thickness is a tap already being paid for. Colour, clarity, shoreline foam and the underwater fade all read off that one number.</td></tr>
+<tr><td><b>Waves lie down at the bank</b></td><td>Amplitude is weighted by distance to the body's own edge, so displacement dies at the shore instead of clipping through it. That one term is what stops a lake's rim shimmering above dry ground.</td></tr>
+<tr><td><b>Bodies are data</b></td><td>Colour, foam, glint and the rest live in custom primitive data, so a jade temple pool and a grey harbour are the same material and share every permutation. A look preset is a copy, not a link.</td></tr>
+<tr><td><b>Ripples, wakes and splashes</b></td><td>A real wave equation on one camera-following field, so ripples spread and reflect off whatever is standing in them. A second body reading the field is not a second cost.</td></tr>
+<tr><td><b>A surface a server agrees with</b></td><td>The waves are a pure function of position and time. Buoyancy on the client and buoyancy on the server are the same arithmetic, and <b>Verify Contract</b> asserts the CPU and the GPU still agree.</td></tr>
+<tr><td><b>Nothing off is paid for</b></td><td>Ripples, foam, foam texture and refraction are separate shaders rather than amounts of zero, because the values arrive as per-instance data the compiler cannot fold.</td></tr>
+</table></div>
+
+<h2>Ten minutes to a pond</h2>
+
+<ol>
+<li><a href="install.html">Clone, build, enable</a>, then <b>Water &rarr; Set Up Water</b>.</li>
+<li>Drag a <b>Water Pool</b> out of the <b>Water</b> menu into a hollow.</li>
+<li>Set <b>Extent</b> and <b>Depth</b>. Do not scale the actor.</li>
+<li>Pick a <b>Look Preset</b> and press <b>Apply Look Preset</b>.</li>
+<li>Walk into it.</li>
+</ol>
+
+<div data-shot="index.styles"></div>
+
+<h2>Light reading</h2>
+
+<div class="tw"><table class="free">
+<tr><td><a href="https://blog.daftsoftware.com/unreal-perf-maxing/">Mobile Forward Rendering guide</a></td><td>why this path exists and how to get on it. Comes with a starter project</td></tr>
+<tr><td><a href="https://github.com/Vaei/MobMaterials">MobMaterials</a></td><td>the masters for the same renderer, which is what this water sits in and wets</td></tr>
+<tr><td><a href="https://github.com/Vaei/MobLights">MobLights</a></td><td>local lights for a renderer that has none, and fog to put them in</td></tr>
+<tr><td><a href="https://github.com/Vaei/MobFort">MobFort</a></td><td>stylized unlit character masters, so the characters standing in this water read the same anywhere</td></tr>
+<tr><td><a href="https://github.com/Vaei/GradientTool">Gradient Tool</a></td><td>stylized water is a gradient indexed by depth, and a gradient you cannot edit without recompiling is not a gradient</td></tr>
+<tr><td><a href="https://github.com/Vaei/ForwardRender">Forward Render Helper</a></td><td>puts your light vector on the MPC. Replaces the hotpatch module in the guide above</td></tr>
+</table></div>
+
+<div class="note">
+This is not Single Layer Water. It does not reflect the sky the way a shading model does, there is no planar reflection behind it, and its ripples are decoration a server cannot see. What it does is work with a frame that has no spare passes, and cost one translucent plane.
+</div>
+
+<h2>Where to go</h2>
+
+<div class="doors">
+<a class="door" href="install.html"><b>Set it up</b><span>Clone, build, run Set Up Water, place your first pool.</span></a>
+<a class="door" href="bodies.html"><b>Fill a world</b><span>Which shape a thing is, and the waves that go with it.</span></a>
+<a class="door" href="techniques.html"><b>Learn the features</b><span>Depth, foam, refraction, caustics and exclusion: when each is right and when it is not.</span></a>
+<a class="door" href="surface.html"><b>Look things up</b><span>Every parameter, what it costs, and what a symptom means.</span></a>
+</div>
+
+</main>
+</body>
+</html>

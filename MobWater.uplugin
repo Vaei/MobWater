@@ -1,0 +1,35 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0.0",
+	"FriendlyName": "MobWater",
+	"Description": "Water for mobile forward rendering path. Ponds, lakes, pools and ocean evaluated in a translucent material against the depth buffer, with waves a server can evaluate too, interactive ripples, exclusion volumes and an underwater state.",
+	"Category": "Rendering",
+	"CreatedBy": "Jared Taylor (Vaei)",
+	"CreatedByURL": "",
+	"DocsURL": "https://vaei.github.io/MobWater/",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"CanContainContent": true,
+	"IsBetaVersion": true,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "MobWater",
+			"Type": "Runtime",
+			"LoadingPhase": "PostConfigInit"
+		},
+		{
+			"Name": "MobWaterEditor",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "PythonScriptPlugin",
+			"Enabled": true
+		}
+	]
+}

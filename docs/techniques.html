@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Techniques &middot; MobWater</title>
+<link rel="icon" href="assets/icon.png">
+<link rel="stylesheet" href="assets/docs.css">
+<script>try{var t=localStorage.getItem('mob-theme');document.documentElement.dataset.theme=t||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light')}catch(e){}</script>
+<script src="assets/site.js" defer></script>
+<script src="assets/docs.js" defer></script>
+</head>
+<body>
+<main>
+
+<h1>Techniques</h1>
+<p class="lede">What each feature is actually doing, when it is the right answer, and when it is not.</p>
+
+<h2 id="the-column">The water column</h2>
+
+<p>One tap does most of the work. The surface knows its own depth on screen and reads the depth buffer for whatever is behind it; the difference is how much water the eye is looking through.</p>
+
+<div data-shot="techniques.column"></div>
+
+<p>Four things come off that number, and they are separate settings because they are separate reads:</p>
+
+<div class="tw"><table>
+<tr><td><b>Colour</b></td><td>graded from <b>Shallow Color</b> to <b>Deep Color</b> over <b>Fade Depth</b>. Beer-Lambert against thickness, which is why water over a pale bed is a different colour from water over a dark one without anything being tinted</td></tr>
+<tr><td><b>Clarity</b></td><td>how opaque it is, over <b>Clarity Depth</b>. This is the bed disappearing, which is not the same as the colour arriving</td></tr>
+<tr><td><b>Shoreline foam</b></td><td>where the column is thinner than <b>Shore Foam Depth</b></td></tr>
+<tr><td><b>Caustics</b></td><td>projected onto the bed the column reconstructs, and lost as the column deepens</td></tr>
+</table></div>
+
+<div class="important">
+<b>Min Opacity</b> is the escape hatch, and shallow stylized water needs it. Letting depth decide is physically right and is the wrong model for water meant to read as a flat colour: a shallow pool has almost no water in it, so it stays nearly transparent however low the clarity is set, and what shows through is the ground - which looks like the water being textured rather than like it being clear.
+</div>
+
+<h2 id="foam">Foam</h2>
+
+<p>Four sources, maxed together, then banded, then scaled by <b>Foam Opacity</b>.</p>
+
+<div class="tw"><table>
+<thead><tr><th>Source</th><th>Driven by</th><th>Wants</th></tr></thead>
+<tbody>
+<tr><td><b>Shoreline</b></td><td>the water column, against <b>Shore Foam Depth</b></td><td>a bed that rises. Nothing under the water, no shoreline foam</td></tr>
+<tr><td><b>Edge</b></td><td>distance to the body's own edge, over <b>Edge Foam Width</b></td><td>nothing. Every body gets it, whether or not there is anything below to be shallow against</td></tr>
+<tr><td><b>Crest</b></td><td>how hard the surface is folding, against <b>Crest Foam Threshold</b></td><td>waves steep enough to break. A still pond never reaches it, which is why it reads as still</td></tr>
+<tr><td><b>Ripple</b></td><td>the interactive field's foam channel</td><td>something moving through the water</td></tr>
+</tbody>
+</table></div>
+
+<div data-shot="techniques.foam"></div>
+
+<div class="tip">
+On a shallow pool the edge line does most of the work, because "where the water is thin" is everywhere and the shoreline term covers the whole body. That is the usual cause of foam that looks like a broken texture rather than like a value being too high.
+</div>
+
+<h3>Foam is authoritative</h3>
+
+<p>Replacing the base colour is not enough. Where foam is opaque it also flattens the normal, suppresses the sun glint and removes the sky reflection - otherwise the wave detail keeps shading straight through the froth and the foam reads as a white texture painted onto moving water.</p>
+
+<p><b>Foam Texture Opacity</b> is how much of that is let back through. At 0 the foam is flat froth that hides the surface completely; at 1 the wave normal, the sun and the sky read through it as if the foam were a tint.</p>
+
+<h3>Its own texture</h3>
+
+<p>Turn <b>Foam Texture</b> on and the foam carries a pattern of its own instead, sampled in the <b>shoreline's frame</b>: one axis along the bank, the other running away from it. Streaks therefore run perpendicular to the shore on every side at once, which is the direction water actually leaves when it runs back down a beach - a texture carried by the flow would streak the same way all round the pool and only look right on one side.</p>
+
+<div class="note">
+The texture itself lives on the material instance, not the body, because a texture is not a number and custom primitive data holds numbers. Setting <b>Foam Texture</b> on a body gives that body a dynamic material instance of its own, and it stops batching with the ones that did not - worth it for a hero pool, not for a hundred puddles. <b>Water &rarr; Open Selected Body's Material</b> opens the shared instance a body is actually drawing with.
+</div>
+
+<h3>Bands</h3>
+
+<p><b>Foam Bands</b> quantises the mask into steps and <b>Foam Band Separation</b> cuts a gap out of each one so water shows between them. Zero bands leaves it smooth.</p>
+
+<div class="caution">
+Quantising only works once the foam is already a narrow band. Applied to a wide region it turns the noise into mottled blotches, which is worse than the gradient it replaced. Bands belong to the toon look, where the band really is a line.
+</div>
+
+<h2 id="refraction">Refraction</h2>
+
+<p>Pixel Normal Offset against the surface normal, so what is behind the water bends with the waves. It is the only feature that reads scene colour, and the only one a platform may refuse outright.</p>
+
+<div data-shot="techniques.refraction"></div>
+
+<p>Off, there is no scene colour read at all. That is the right look for deep or stylized water anyway - the bed is hidden rather than distorted - and it is the only look available on a platform that will not copy scene colour. Confirm it on your target before a level depends on it.</p>
+
+<h2 id="caustics">Caustics</h2>
+
+<p>Two scrolling layers of a generated cell pattern, multiplied together and projected onto the bed the column reconstructs, faded out as the column deepens because focused light stops focusing as it goes down. Drawn by the water itself, so it costs two samples rather than a pass.</p>
+
+<div data-shot="techniques.caustics"></div>
+
+<div class="tip">
+Seeing the bottom bend is most of why shallow stylized water reads as liquid rather than as coloured glass. On deep water it is nearly free to leave on and nearly invisible, which is the point of <b>Caustic Depth</b>.
+</div>
+
+<h2 id="glint">Sun glint</h2>
+
+<p>This renderer has its local lights off and no sky atmosphere, so a lit translucent surface has almost nothing to reflect and reads as flat dark glass. The glint is most of what puts the light back, and the subsystem keeps it pointed at whatever directional light the level has.</p>
+
+<div class="tw"><table>
+<tr><td><b>Glint Gloss</b></td><td>how tight the lobe is. Low is a wide sheen, high is hard sparkle over open water</td></tr>
+<tr><td><b>Glint Threshold</b></td><td>cuts the lobe into separate marks. 0 leaves the continuous sheen real water shows</td></tr>
+<tr><td><b>Glint Density</b></td><td>how many of the cut marks appear. Lower removes whole glints rather than dimming all of them, so the surface is sparser rather than uniformly duller. Which ones is decided by noise anchored to the world, so they stay put instead of crawling with the camera</td></tr>
+<tr><td><b>Glint Emissive</b></td><td>pushes a glint past what the light could account for, so it blooms. Above 1 it is no longer a reflection of anything, which is the point</td></tr>
+</table></div>
+
+<div data-shot="techniques.glint"></div>
+
+<h2 id="reflection">Sky reflection</h2>
+
+<p>A long-latitude sky sampled by the reflected view vector and weighted by Fresnel. <b>Reflection Strength</b> scales it; intensity and rotation are on the parameter collection, so a level can turn the sky with its backdrop at runtime.</p>
+
+<p>The texture is a material parameter rather than a collection one, because a collection cannot hold a texture. Point <b>Reflection Texture</b> in the project settings at whatever your sky uses and <b>Set Up Water</b> writes it into every generated instance.</p>
+
+<div class="caution">
+A reflection is a smooth ramp across the whole body, and a smooth ramp is the thing toon shading is trying not to have. The toon preset sets this to 0 for that reason - it read as varnish.
+</div>
+
+<h2 id="exclusion">Exclusion</h2>
+
+<p>Areas water is kept out of, evaluated by the surface rather than stamped into a field, so the edge is exactly where the geometry is even while it moves. Four at a time, nearest the view. See <a href="exclusion.html">Exclusion</a>.</p>
+
+<h2 id="unlit">Unlit</h2>
+
+<p>How much of the water's colour is emitted rather than lit. 0 lets the scene light it, which is right for water that belongs to its environment. 1 emits it instead, so the colour on screen is the colour that was chosen.</p>
+
+<p>A green cast on blue water, or dark blotches that drift with the surface, are both this: the skylight captured a field, or a wave turned away from the sun. Raising <b>Unlit</b> removes both, and removes the water's shape along with them, which is why the toon preset sits at half rather than at one.</p>
+
+<p><a class="cta" href="stylized.html">Now the two art directions &rarr;</a></p>
+
+</main>
+</body>
+</html>

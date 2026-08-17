@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Surface &middot; MobWater</title>
+<link rel="icon" href="assets/icon.png">
+<link rel="stylesheet" href="assets/docs.css">
+<script>try{var t=localStorage.getItem('mob-theme');document.documentElement.dataset.theme=t||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light')}catch(e){}</script>
+<script src="assets/site.js" defer></script>
+<script src="assets/docs.js" defer></script>
+</head>
+<body>
+<main>
+
+<h1>Surface</h1>
+<p class="lede">Every property on <code>UMobWaterComponent</code>, in the order the details panel puts them.</p>
+
+<p>All of it is per-body custom primitive data unless a row says otherwise, so nothing here costs a material instance and a level can carry as many looks as it likes for one set of shaders.</p>
+
+<div data-shot="surface.details"></div>
+
+<h2>Water</h2>
+
+<div class="tw"><table class="free">
+<thead><tr><th>Property</th><th>Default</th><th></th></tr></thead>
+<tbody>
+<tr><td><b>Shape</b></td><td>Box</td><td>which mesh, which material set, and how the edge distance is worked out. Compiled, not per body</td></tr>
+<tr><td><b>Look Preset</b></td><td>&mdash;</td><td>a look to copy on. <b>Apply Look Preset</b> copies it and forgets it</td></tr>
+<tr><td><b>Extent</b></td><td>500, 500 cm</td><td>half the size on X and Y. The unit mesh is scaled to this and the half extent is handed to the vertex shader</td></tr>
+<tr><td><b>Depth</b></td><td>200 cm</td><td>what a query is told. Answered, not measured</td></tr>
+<tr><td><b>Shore Fade Distance</b></td><td>200 cm</td><td>how far in from the edge the waves flatten to nothing</td></tr>
+</tbody>
+</table></div>
+
+<h2>Waves</h2>
+
+<div class="tw"><table class="free">
+<thead><tr><th>Property</th><th>Default</th><th></th></tr></thead>
+<tbody>
+<tr><td><b>Wave Preset</b></td><td>by shape</td><td>the set this body carries. Unset means the world's own</td></tr>
+<tr><td><b>Wave Amplitude</b></td><td>1.0</td><td>scales this body's waves on top of the shared set</td></tr>
+</tbody>
+</table></div>
+
+<h2>Colour</h2>
+
+<div class="tw"><table class="free">
+<thead><tr><th>Property</th><th>Default</th><th></th></tr></thead>
+<tbody>
+<tr><td><b>Shallow Color</b></td><td>0.18, 0.42, 0.42</td><td>linear RGB at its thinnest</td></tr>
+<tr><td><b>Deep Color</b></td><td>0.01, 0.06, 0.11</td><td>what it grades to</td></tr>
+<tr><td><b>Fade Depth</b></td><td>300 cm</td><td>the column over which the colour reaches the deep one</td></tr>
+<tr><td><b>Clarity Depth</b></td><td>500 cm</td><td>the column over which the bed stops being visible at all. Not the same question as the colour</td></tr>
+<tr><td><b>Min Opacity</b></td><td>0</td><td>how opaque it is regardless of how much water there is. 1 hides the bed entirely. Shallow stylized water needs this</td></tr>
+<tr><td><b>Unlit</b></td><td>0</td><td>how much of the colour is emitted rather than lit. A green cast, or dark blotches drifting with the surface, are both fixed here</td></tr>
+</tbody>
+</table></div>
+
+<div data-shot="surface.opacity"></div>
+
+<h2>Surface</h2>
+
+<div class="tw"><table class="free">
+<thead><tr><th>Property</th><th>Default</th><th></th></tr></thead>
+<tbody>
+<tr><td><b>Roughness</b></td><td>0.02</td><td>calm water is nearly a mirror, which is what the specular reads</td></tr>
+<tr><td><b>Flow Velocity</b></td><td>0, 0 cm/s</td><td>drifts the detail and the caustics, biases foam. Carries nothing</td></tr>
+<tr><td><b>Flow Space</b></td><td>World</td><td><b>Local</b> turns with the actor, which is what a river laid out at an angle wants. One direction for the whole body either way</td></tr>
+<tr><td><b>Detail Strength</b></td><td>1.0</td><td>how much of the scrolling detail normal reaches the surface. 0 is glass</td></tr>
+<tr><td><b>Detail Scroll Speed</b></td><td>1.0</td><td>how fast it drifts with no flow and no waves. 0 is genuinely still water, which nothing else can produce</td></tr>
+<tr><td><b>Macro Strength</b></td><td>2.2</td><td>the slow swell across the whole body. Large scale, not texture</td></tr>
+<tr><td><b>Glint Gloss</b></td><td>380</td><td>how tight the sun's lobe is</td></tr>
+<tr><td><b>Glint Strength</b></td><td>2.5</td><td>how bright it is. Most of what puts light back on this renderer</td></tr>
+<tr><td><b>Glint Threshold</b></td><td>0</td><td>cuts the lobe into separate marks. 0 is a continuous sheen</td></tr>
+<tr><td><b>Glint Density</b></td><td>1.0</td><td>how many of the cut marks appear. Removes whole glints rather than dimming all of them</td></tr>
+<tr><td><b>Glint Emissive</b></td><td>1.0</td><td>pushes a glint past what the light could account for, so it blooms</td></tr>
+</tbody>
+</table></div>
+
+<h2>Foam</h2>
+
+<p><b>Foam</b> is a compiled variant, so a body without it carries neither the foam samples nor their maths.</p>
+
+<div class="tw"><table class="free">
+<thead><tr><th>Property</th><th>Default</th><th></th></tr></thead>
+<tbody>
+<tr><td><b>Foam</b></td><td>on</td><td>shoreline, edge and crest foam</td></tr>
+<tr><td><b>Foam Opacity</b></td><td>1.0</td><td>how much foam there is at all, whatever it is made of. Scales the finished mask after the bands and edges are worked out, so turning it down thins every band evenly instead of eating them from the shore outwards</td></tr>
+<tr><td><b>Shore Foam Depth</b></td><td>8 cm</td><td>how far up from the bed foam reaches. A line, not a region</td></tr>
+<tr><td><b>Edge Foam Width</b></td><td>0.12</td><td>how far in from the bank the edge line reaches, as a fraction of the shore fade. Every body gets this whether or not anything is under it</td></tr>
+<tr><td><b>Crest Foam Threshold</b></td><td>0.55</td><td>how hard the surface has to fold before it breaks white. 1 is never</td></tr>
+<tr><td><b>Foam Sharpness</b></td><td>3.0</td><td>how hard the edge is. Low is a wet fade up a beach, high is a stylized cut</td></tr>
+<tr><td><b>Foam Noise Amount</b></td><td>0</td><td>how far noise moves the edge, as a fraction of the band width. It moves where the foam ends, not how bright it is</td></tr>
+<tr><td><b>Foam Bands</b></td><td>0</td><td>cuts it into this many steps. 0 leaves it smooth. A wake is left out of the banding, because banding rounds every step up and would turn the faintest trail into a solid slab with a hard edge</td></tr>
+<tr><td><b>Foam Band Separation</b></td><td>0</td><td>how much water shows between the bands. 0 leaves them touching, which reads as one band with steps in it</td></tr>
+<tr><td><b>Foam Texture</b></td><td>off</td><td>foam carries a pattern of its own, in the shoreline's frame. A compiled variant</td></tr>
+<tr><td><b>Foam Texture</b> (asset)</td><td>&mdash;</td><td><b>not per-body data.</b> Setting it takes a dynamic material instance and drops the body out of the batch. Unset uses the material's own</td></tr>
+<tr><td><b>Foam Texture Opacity</b></td><td>0</td><td>with the foam's own texture off, how much of the water underneath shows through. With it on, how strongly the texture marks the foam</td></tr>
+</tbody>
+</table></div>
+
+<div class="note">
+Three of these share data slots, because the primitive data is full at thirty six floats: bands with their separation, noise amount with texture opacity, and edge width with foam opacity. Each pair is quantised to a hundredth on the whole-number side. It is invisible in use and it is why those sliders have the ranges they do.
+</div>
+
+<h2>Refraction, Reflection, Ripples, Caustics</h2>
+
+<div class="tw"><table class="free">
+<thead><tr><th>Property</th><th>Default</th><th></th></tr></thead>
+<tbody>
+<tr><td><b>Refraction</b></td><td>off</td><td>bends what is behind the surface. A compiled variant, and the only feature that reads scene colour</td></tr>
+<tr><td><b>Refraction Strength</b></td><td>0.3</td><td></td></tr>
+<tr><td><b>Reflection Strength</b></td><td>1.0</td><td>how much sky the body reflects. 0 is none</td></tr>
+<tr><td><b>Ripples</b></td><td>on</td><td>whether this body reads the interactive field. A compiled variant. The field is drawn once for the whole level, but the samples that read it are per pixel, so a body nothing can reach is better without</td></tr>
+<tr><td><b>Ripple Strength</b></td><td>1.0</td><td></td></tr>
+<tr><td><b>Caustics</b></td><td>on</td><td>a caustic thrown onto whatever the water sits on. Two samples, not a pass</td></tr>
+<tr><td><b>Caustic Strength</b></td><td>0.35</td><td></td></tr>
+<tr><td><b>Caustic Depth</b></td><td>400 cm</td><td>the column over which the caustic is lost</td></tr>
+</tbody>
+</table></div>
+
+<h2>Query</h2>
+
+<div class="tw"><table class="free">
+<tbody>
+<tr><td><b>Cpu Queries</b></td><td>on</td><td>off, the body is scenery: it draws and nothing can ask where its surface is. A decorative ocean has no business paying for a wave evaluation nobody reads</td></tr>
+</tbody>
+</table></div>
+
+<h2>Project settings</h2>
+
+<p><b>Water &rarr; Open Project Settings</b>, or Project Settings, Plugins, Mob Water. <b>Set Up Water</b> fills all of it.</p>
+
+<div class="tw"><table class="free">
+<tbody>
+<tr><td><b>Surface Meshes</b></td><td>the unit mesh each shape rasterises</td></tr>
+<tr><td><b>Materials</b></td><td>per shape, the instance for each feature combination</td></tr>
+<tr><td><b>Default Wave Presets</b></td><td>what a newly placed body of each shape starts with</td></tr>
+<tr><td><b>Parameter Collection</b></td><td>where the wave set and the clock are published</td></tr>
+<tr><td><b>Time Loop Period</b></td><td>300 s. How long water time runs before folding back</td></tr>
+<tr><td><b>Reflection Texture</b></td><td>the sky every body reflects, long-latitude. Written into every instance at setup</td></tr>
+<tr><td><b>Underwater Material</b></td><td>what a camera under the surface looks through</td></tr>
+<tr><td><b>Ripples Enabled</b></td><td>off costs nothing and leaves the field flat</td></tr>
+<tr><td><b>Ripple Extent</b></td><td>2000 cm. How far the field reaches from the view, which trades reach against how fine a ripple can be</td></tr>
+<tr><td><b>Ripple Speed</b></td><td>0.28. Above about 0.5 the wave equation goes unstable, so it is clamped well below</td></tr>
+<tr><td><b>Ripple Damping</b></td><td>0.985. At 1 the pond never settles</td></tr>
+</tbody>
+</table></div>
+
+<p><a class="cta" href="ripples.html">Now the ripple field &rarr;</a></p>
+
+</main>
+</body>
+</html>

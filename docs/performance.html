@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cost &middot; MobWater</title>
+<link rel="icon" href="assets/icon.png">
+<link rel="stylesheet" href="assets/docs.css">
+<script>try{var t=localStorage.getItem('mob-theme');document.documentElement.dataset.theme=t||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light')}catch(e){}</script>
+<script src="assets/site.js" defer></script>
+<script src="assets/docs.js" defer></script>
+</head>
+<body>
+<main>
+
+<h1>Cost</h1>
+<p class="lede">Measured by <b>Water &rarr; Report Cost</b>. Editor estimates, worst case, with all eight wave slots unrolled.</p>
+
+<div class="warn">
+These are the <b>editor's own estimates on whatever preview platform is active</b>, and they were taken under SM5. The editor over-reports and it is not the number the platform's compiler produces. Treat them as a baseline to hold steady, and measure your own under the <a href="install.html">ES3.1 preview</a> before quoting them anywhere.
+</div>
+
+<h2>The real cost is fill</h2>
+
+<div class="important">
+None of the numbers below is the real cost. Water is a translucent plane and the bill is <b>fill</b>: the pixels it covers. A pond across the courtyard is nearly free; an ocean filling the screen is a full screen pass of a thousand-instruction shader. Size bodies to what they actually are, and give a decorative one a cull distance.
+</div>
+
+<p>There is no depth prepass on this renderer, which is why fill is the whole model. Two bodies overlapping pay twice for the pixels they share.</p>
+
+<div data-shot="performance.fill"></div>
+
+<h2>Masters</h2>
+
+<div class="tw"><table>
+<thead><tr><th></th><th>Vertex</th><th>Pixel</th><th>Samplers</th><th>Interpolators</th></tr></thead>
+<tbody>
+<tr><td><code>M_MobWater</code></td><td>926</td><td>1188</td><td>6</td><td>4</td></tr>
+<tr><td><code>M_MobWaterUnderwater</code></td><td>250</td><td>143</td><td>2</td><td>0</td></tr>
+<tr><td><code>M_MobWaterRippleStep</code></td><td>24</td><td>83</td><td>2</td><td>0</td></tr>
+<tr><td><code>M_MobWaterRippleCopy</code></td><td>24</td><td>26</td><td>2</td><td>0</td></tr>
+<tr><td><code>M_MobWaterRippleStamp</code></td><td>24</td><td>133</td><td>2</td><td>0</td></tr>
+</tbody>
+</table></div>
+
+<p>Six samplers for six texture reads' worth of work, because every tap is <code>Shared:Wrap</code>. The ripple materials are drawn twice per step over a 256&sup2; target between them, which is 65k pixels of an 83-instruction shader - a rounding error beside one body of water on screen. The step reads nine neighbours rather than five because a five point Laplacian carries a wave faster along the grid axes than across its diagonals, and a ring that travels far enough turns into a square.</p>
+
+<div class="note">
+The vertex count is high because the wave sum happens there: eight Gerstner waves, unrolled, plus the shore attenuation. It is paid per vertex of the surface mesh, so a lake's <b>Grid Resolution</b> and a river's <b>Segments Along</b> are vertex-shader settings as much as they are silhouette ones.
+</div>
+
+<h2>Permutations</h2>
+
+<p><b>39 instances</b>: thirteen per shape across three shapes.</p>
+
+<div class="tw"><table>
+<thead><tr><th>Axis</th><th></th></tr></thead>
+<tbody>
+<tr><td>Ripples</td><td>the field read, five samples</td></tr>
+<tr><td>Foam</td><td>the foam sources and their maths</td></tr>
+<tr><td>Refraction</td><td>the only scene colour read</td></tr>
+<tr><td>Foam Texture</td><td>a sixth texture read and its shoreline coordinates</td></tr>
+</tbody>
+</table></div>
+
+<p>Four axes is sixteen combinations, but foam texture without foam is unbuildable, so twelve are real - plus a debug instance, which is thirteen a shape.</p>
+
+<div class="tw"><table>
+<tr><td>Shapes with instances</td><td>Box, Disc, Spline. An ocean has no bank at all, so it borrows the Disc set and brings its own ring mesh</td></tr>
+<tr><td>Keep to</td><td>a handful of combinations across the whole project</td></tr>
+<tr><td>Cheapest useful set</td><td>foam alone, plus ripples on the bodies something can actually walk into</td></tr>
+</table></div>
+
+<div class="caution">
+Every combination a level places is a distinct shader and a distinct PSO. That is the price of not paying for features a body does not use, and it is a real price on a platform that compiles at load.
+</div>
+
+<h2>Textures</h2>
+
+<div class="tw"><table>
+<thead><tr><th></th><th>Size</th><th></th></tr></thead>
+<tbody>
+<tr><td><code>RT_MobWaterRipple</code></td><td>256&sup2;</td><td>0.50 MB</td></tr>
+<tr><td><code>RT_MobWaterRippleHistory</code></td><td>256&sup2;</td><td>0.50 MB</td></tr>
+<tr><td><code>T_MobWaterNormal</code></td><td>256&sup2;</td><td>generated, tiling</td></tr>
+<tr><td><code>T_MobWaterFoam</code></td><td>256&sup2;</td><td>generated, tiling</td></tr>
+<tr><td><code>T_MobWaterCaustics</code></td><td>256&sup2;</td><td>generated, tiling</td></tr>
+<tr><td><code>T_MobWaterSky</code></td><td>128&times;64</td><td>a stand-in sky, replaced by one setting</td></tr>
+</tbody>
+</table></div>
+
+<p>Roughly a megabyte, nearly all of it the two render targets - and the field is a fixed cost whatever a level does, because its price is its resolution.</p>
+
+<div class="tip">
+<b>Ripple Extent</b> trades reach against fineness at no cost either way. Two thousand across 256 is about eight centimetres a texel; doubling the reach halves the detail and changes nothing about the bill.
+</div>
+
+<h2>The CPU side</h2>
+
+<p>A query is eight waves unrolled plus four walk-back iterations, per point. A pontoon array of eight points is eight of those. <code>GetWaterInfoAtLocations</code> saves the body lookup, not the maths.</p>
+
+<p><b>Cpu Queries</b> off removes it entirely for a body, which is what a decorative ocean wants.</p>
+
+<h2>How to measure</h2>
+
+<div class="tw"><table>
+<thead><tr><th>Do</th><th>Why</th></tr></thead>
+<tbody>
+<tr><td><b>Water &rarr; Report Cost</b></td><td>instructions and samplers per master, how many instances exist, what the textures weigh</td></tr>
+<tr><td><b>Water &rarr; Verify Contract</b></td><td>the CPU and GPU wave maths still agree, and the data indices the component writes are the ones the material reads</td></tr>
+<tr><td>Preview platform on ES3.1</td><td>anything measured under SM5 is a different shader</td></tr>
+<tr><td>Shader complexity view</td><td>the water is the overdraw. This is where fill becomes visible</td></tr>
+<tr><td><code>mob.Water.Debug</code></td><td>separates a value that never arrived from one that arrived and did nothing</td></tr>
+</tbody>
+</table></div>
+
+<div data-shot="performance.report"></div>
+
+<h2>Where the savings are</h2>
+
+<ol>
+<li><b>Screen coverage.</b> Everything else is a rounding error beside it.</li>
+<li><b>Cull distance</b> on every body that is scenery.</li>
+<li><b>Ripples off</b> on any body nothing can reach. It is five samples a pixel.</li>
+<li><b>Refraction off</b>, which removes the scene colour read entirely and is the right look for deep or stylized water anyway.</li>
+<li><b>Foam off</b> on bodies with no visible edge - an ocean seen only at distance.</li>
+<li><b>Fewer combinations</b>, so a level compiles fewer shaders.</li>
+<li><b>Cpu Queries off</b> on anything nothing floats on.</li>
+</ol>
+
+<p><a class="cta" href="troubleshooting.html">If it is wrong &rarr;</a></p>
+
+</main>
+</body>
+</html>

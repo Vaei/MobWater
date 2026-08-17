@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Changelog &middot; MobWater</title>
+<link rel="icon" href="assets/icon.png">
+<link rel="stylesheet" href="assets/docs.css">
+<script>try{var t=localStorage.getItem('mob-theme');document.documentElement.dataset.theme=t||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light')}catch(e){}</script>
+<script src="assets/site.js" defer></script>
+<script src="assets/docs.js" defer></script>
+</head>
+<body>
+<main>
+
+<h1>Changelog</h1>
+
+<div class="caution">
+Not officially released. Expect updates without versioning, and a changelog that does not yet reflect them.
+</div>
+
+<h2>1.0.0</h2>
+
+<h3>Bodies</h3>
+
+<ul>
+<li>Box and disc pools, closed-spline lakes, open-spline rivers with per-point widths, and an ocean on a ring mesh that follows the view</li>
+<li>Generated surface meshes, and a spline body that builds its own</li>
+<li>Extent and depth on the component, so an artist sets a size and never touches a transform</li>
+<li>Look presets, copied onto a body rather than linked to it: Stylized, Toon and Realistic</li>
+<li>Wave presets per shape, so a newly placed pond does not arrive carrying an ocean's swell</li>
+</ul>
+
+<h3>Surface</h3>
+
+<ul>
+<li>Depth-graded colour and clarity, both read from the water column recovered from scene depth</li>
+<li>Minimum opacity, for water that has to read as a flat colour rather than as thin water</li>
+<li>Unlit, for water whose colour should be the colour that was chosen</li>
+<li>Two scrolling detail normals and a macro swell, with a drift that is independent of flow and waves</li>
+<li>Shoreline, edge, crest and ripple foam, banded, separated, noise-broken and scaled by one opacity</li>
+<li>Foam that suppresses the normal, the glint and the reflection where it is opaque, rather than only tinting them</li>
+<li>An optional foam texture sampled in the shoreline's own frame, so streaks run away from the bank on every side at once</li>
+<li>Pixel Normal Offset refraction, as a variant that compiles the scene colour read out entirely</li>
+<li>Fresnel-weighted sky reflection from a long-latitude texture, with rotation and intensity on the collection</li>
+<li>Sun glint from a tracked directional light, with gloss, threshold, density and emissive</li>
+<li>Caustics projected onto the bed, lost with depth</li>
+</ul>
+
+<h3>Waves</h3>
+
+<ul>
+<li>Gerstner waves, up to eight, with speed from the dispersion relation rather than authored</li>
+<li>The same algorithm on the CPU and in the shader, asserted equal at 192 points across 3 instants</li>
+<li>Shore attenuation weighted by distance to the body's own edge, computed identically in the vertex shader and the query</li>
+<li>A supplied clock, folded into a loop period, with the same value reaching the material and every query</li>
+</ul>
+
+<h3>Ripples</h3>
+
+<ul>
+<li>A wave equation on a scrolling 256&sup2; render target pair, so ripples spread and reflect off what is standing in them</li>
+<li>Disturbance components, persistent or moved-triggered, stamped weakest first</li>
+<li>Wakes, and foam left where something has been</li>
+<li>One-shot pushes from anywhere, and a clear</li>
+</ul>
+
+<h3>Exclusion</h3>
+
+<ul>
+<li>Disc, sphere, box and rect volumes, evaluated rather than stamped so the edge stays exactly where the geometry is while it moves</li>
+<li>Four published at once, nearest the view, with the overflow said once in the log</li>
+<li>A component visualizer to place them by</li>
+<li>Mesh exclusion behaves as its bounding rectangle and says so, rather than quietly doing something else</li>
+</ul>
+
+<h3>Things in it</h3>
+
+<ul>
+<li>An interaction component: immersion, enter, exit and splash events, ripples from the feet, wade drag and a swim state</li>
+<li>A virtual movement seam, because a plugin cannot know what movement component a project uses</li>
+<li>An underwater component: a plane in front of the camera that absorbs by distance, with a crossfade at the waterline</li>
+<li>A query API that answers from the wave model alone, attributed to the object that asked</li>
+</ul>
+
+<h3>Editor</h3>
+
+<ul>
+<li>A Water toolbar menu: draggable placement rows, Set Up Water, Generate Materials, Verify Contract, Report Cost, Open Wave Collection, Open Selected Body's Material, Select Ocean, project settings, and a per-developer hide</li>
+<li>Set Up Water checks its config file out of source control, so the settings survive a restart</li>
+<li>A missing-material notification with a link that generates them</li>
+<li>Details customization that orders the water categories</li>
+<li><code>mob.Water.Debug</code></li>
+</ul>
+
+<h3>Known gaps</h3>
+
+<ul>
+<li>No baked FFT spectrum; the ocean runs a five-wave Gerstner set</li>
+<li>No meniscus, and no caustics seen from underwater</li>
+<li>No buoyancy component, though the query is shaped for one</li>
+<li>Mesh exclusion is a bounding rectangle</li>
+<li>Exclusion is not subtracted from the CPU query</li>
+<li>The stylized gradient fork is written and not wired up</li>
+<li>Icons are placeholders</li>
+</ul>
+
+</main>
+</body>
+</html>

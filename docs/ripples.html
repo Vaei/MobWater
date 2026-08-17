@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ripples &middot; MobWater</title>
+<link rel="icon" href="assets/icon.png">
+<link rel="stylesheet" href="assets/docs.css">
+<script>try{var t=localStorage.getItem('mob-theme');document.documentElement.dataset.theme=t||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light')}catch(e){}</script>
+<script src="assets/site.js" defer></script>
+<script src="assets/docs.js" defer></script>
+</head>
+<body>
+<main>
+
+<h1>Ripples</h1>
+<p class="lede">One camera-following field, stepped by a real wave equation, that every body of water reads.</p>
+
+<h2>What it is</h2>
+
+<p>A 256&sup2; render target pair, its origin snapped to whole texels and kept centred on the view. The step material advances a wave equation across it, scrolls it to follow the camera, and whatever is standing in the water is stamped into it. Bodies with <b>Ripples</b> on read it back as a normal and a foam contribution.</p>
+
+<p>It steps at a fixed sixty a second rather than once a frame, catching up at most two steps after a hitch. Wave speed, damping and how long foam lasts are all per step, so a field stepped per frame is a different body of water on every machine, and the one it happens to run at is the one nobody tuned.</p>
+
+<div data-shot="ripples.field"></div>
+
+<p>Because it is a wave equation and not a decal that fades, a push spreads outwards, slows nothing down that should not, and <b>reflects off whatever is standing in the way</b>. That is the thing a scrolling texture cannot do at any price.</p>
+
+<div data-shot="ripples.reflect"></div>
+
+<div class="important">
+The cost is fixed by resolution. One disturber and a hundred cost the same field, and a second body of water reading it is not a second cost - only the per-pixel samples that read it are per body, which is what the <b>Ripples</b> variant switches off.
+</div>
+
+<p>The pushes go in as parameters on the pass that copies the field back, <b>eight to a step</b>, strongest first. That is a character, its wake and a few impacts landing together; past it the weakest push nothing and a warning names the count. Eight is not a budget to spend carefully - a disturber only stamps on the steps it has actually moved on, so a crowd standing in a pond occupies no slots at all.</p>
+
+<h2>Reach against fineness</h2>
+
+<p><b>Ripple Extent</b> is how wide the field is; it reaches half of that, from a centre pushed a quarter of its width down the view so a third person camera does not leave its own character at the border. The outer seventh is faded out, so the usable reach is nearer three sevenths of the width than a half - without that fade the field's own border is a straight edge drawn across the water that follows the camera, because still water is a mirror and rippled water is not, and no two shadings of this surface are further apart than those. Two thousand across a 256 target is about eight centimetres a texel, which puts eighteen of them across a character&rsquo;s ripple. A stamp only nine texels wide reads as a block rather than a ripple. Doubling the reach halves the detail; there is no third option, because the resolution is the cost.</p>
+
+<div class="tw"><table>
+<tr><td><b>Ripple Speed</b></td><td>0.28. How fast a ripple travels, as the square of texels per step - squared because that is the term the equation takes, and writing it as a speed would hide where the limit is. Above 0.5 the equation goes unstable and the field fills with noise that never settles, so it is clamped below it</td></tr>
+<tr><td><b>Ripple Damping</b></td><td>0.985. How much survives each step. Below 1 it dies out; at 1 the pond never settles</td></tr>
+<tr><td><b>Ripples Enabled</b></td><td>project wide. Off costs nothing and leaves the field flat</td></tr>
+</table></div>
+
+<h2>Disturbers</h2>
+
+<p><b>Mob Water Disturbance</b> is a scene component: anything with one pushes the surface where it is.</p>
+
+<div class="tw"><table class="free">
+<thead><tr><th>Property</th><th>Default</th><th></th></tr></thead>
+<tbody>
+<tr><td><b>Radius</b></td><td>60 cm</td><td>how far across the surface it pushes</td></tr>
+<tr><td><b>Strength</b></td><td>1.0</td><td>how far it displaces the surface. Negative pulls it down, which is what an object entering does. Two is as far as the field can hold, and a crest that reaches it is clipped flat</td></tr>
+<tr><td><b>Persistent</b></td><td>off</td><td>on, it disturbs every frame - a fountain, an outflow. Off is what a character wants: standing still leaves the water to settle, which is what still water does</td></tr>
+<tr><td><b>Foam</b></td><td>0.35</td><td>how white its wake gets. A ceiling, not an amount: stamps overlap by most of their radius, so foam that accumulated would reach solid white within a few strides whatever this was set to, and solid white has no shape in it</td></tr>
+<tr><td><b>Move Threshold</b></td><td>0, meaning half the radius</td><td>how far it has to move before it stamps again. Shorter than the radius and it pushes water it has already pushed before that push has moved, so a trail of ripples becomes a mound that grows for as long as it keeps walking</td></tr>
+</tbody>
+</table></div>
+
+<div class="note">
+<b>Strength</b> is a height. The surface is displaced and let go, which is why the crest that leaves is the size that was asked for - a stamp that reached only the height and not the height a step ago would be a velocity instead, and would keep climbing until it railed.
+</div>
+
+<h3>One-shot pushes</h3>
+
+<p>For something that happens rather than something that stands there - an impact, a footfall, a thrown stone:</p>
+
+<pre><code>UMobWaterSubsystem::AddRipple(this, Location, Radius, Strength);</code></pre>
+
+<p>Queued and drawn on the next field tick. <code>ClearRipples()</code> empties the field back to still, which is what a level transition or a cutscene start wants.</p>
+
+<h2>Wakes and foam</h2>
+
+<p>Anything that keeps moving leaves a wake, because each stamp is a fresh push into a field that is still carrying the last one. Foam goes into the field's third channel up to the disturber's own <b>Foam</b>, at the point it stamped, and only dries from there. Bodies with <b>Foam</b> on read it as one of the four foam sources, so a boat leaves white water behind it without anything being authored.</p>
+
+<div class="note">
+Foam is put in where the thing was, not worked out from how fast the surface is moving. A ripple carries its crest outwards across the whole body, so foam taken from the surface's motion is a plume spreading ahead of whatever made it rather than a trail behind.
+</div>
+
+<div data-shot="ripples.wake"></div>
+
+<p>Where several overlap their pushes sum, which is what makes two wakes crossing read as two wakes crossing.</p>
+
+<h2 id="not-authoritative">The field is never authoritative</h2>
+
+<div class="warn">
+Ripples, wakes and stamped foam live in a render target. A dedicated server has no GPU to hold one, so the CPU query does not know about them and never will. <code>GetWaterInfoAtLocation</code> answers from the wave model alone.
+</div>
+
+<p>This is a deliberate line, not a limitation to be worked around. Waves are shared because they are a pure function of position and time; ripples are decoration because they are a simulation with state. Building buoyancy on a value only the client can see is how two machines end up disagreeing about where a boat is, with nothing in either log to say why.</p>
+
+<p>If something needs to bob on a passing wake, drive it from the same event that made the wake.</p>
+
+<h2>Checking it</h2>
+
+<div class="tw"><table class="free">
+<tbody>
+<tr><td><code>mob.Water.Debug</code></td><td>reports whether the field has been centred yet, its origin, how many disturbers are registered and how many were stamped on the last frame that drew it. A subsystem that exists and one that runs look identical without it</td></tr>
+<tr><td>Ripples do nothing</td><td>the body has <b>Ripples</b> off, or it is outside the field - the field follows the view and a body across the level is not in it</td></tr>
+<tr><td>A straight edge across the water that follows you</td><td>the field's own border. It is faded, not cut, so this means <b>Ripple Extent</b> is small enough that the border falls on water something is rippling. Widen it</td></tr>
+<tr><td>A ring that grows into a square as it travels</td><td>grid anisotropy. The step uses the nine point Laplacian for this reason, so if it reappears the step material is stale - regenerate it</td></tr>
+<tr><td>A mound under a standing character</td><td><b>Persistent</b> on, on something that should only disturb the water when it moves</td></tr>
+<tr><td>A hard white slab dragged behind something</td><td><b>Foam</b> set near 1, or a <b>Ripple Extent</b> wide enough that the stamp is a handful of texels</td></tr>
+<tr><td>The field fills with noise</td><td><b>Ripple Speed</b> raised past stability</td></tr>
+<tr><td>Some pushes land and others do not</td><td>more than eight disturbances on one step. The log names the count once; the strongest eight are the ones that landed</td></tr>
+</tbody>
+</table></div>
+
+<p><a class="cta" href="exclusion.html">Now keeping water out &rarr;</a></p>
+
+</main>
+</body>
+</html>

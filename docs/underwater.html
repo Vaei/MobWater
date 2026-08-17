@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Underwater &middot; MobWater</title>
+<link rel="icon" href="assets/icon.png">
+<link rel="stylesheet" href="assets/docs.css">
+<script>try{var t=localStorage.getItem('mob-theme');document.documentElement.dataset.theme=t||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light')}catch(e){}</script>
+<script src="assets/site.js" defer></script>
+<script src="assets/docs.js" defer></script>
+</head>
+<body>
+<main>
+
+<h1>Underwater</h1>
+<p class="lede">A plane in front of the camera that absorbs by distance, so the world goes green and then gone.</p>
+
+<h2>What it is</h2>
+
+<p>Attach a <b>Mob Water Underwater</b> component to a camera. It is a plane held just in front of the near clip, drawn only while the camera is under water, that reads the depth buffer and absorbs by how far the light travelled to reach the eye.</p>
+
+<div data-shot="underwater.view"></div>
+
+<p>A plane rather than a post-process pass, for the same reason the lights in <a href="https://github.com/Vaei/MobLights">MobLights</a> are meshes: this renderer has no spare full-screen pass, and a material on a quad is one the renderer already knows how to draw. No scene view extension, no render graph pass, no global shader.</p>
+
+<div class="important">
+Absorbing by distance is the whole point. A flat overlay tints everything the same amount, so a hand in front of your face is as green as the far wall and nothing reads as being underwater - it reads as a green filter. Reading depth costs one tap and gets the whole effect.
+</div>
+
+<h2>Properties</h2>
+
+<div class="tw"><table class="free">
+<thead><tr><th>Property</th><th>Default</th><th></th></tr></thead>
+<tbody>
+<tr><td><b>Distance</b></td><td>15 cm</td><td>how far in front of the camera the plane sits. It has to clear the near clip plane and nothing more - further out and something can get between the camera and it, which shows as a hole in the water</td></tr>
+<tr><td><b>Size</b></td><td>200 cm</td><td>how wide the plane is at that distance. Wide enough to cover the widest field of view the game uses</td></tr>
+<tr><td><b>Clarity</b></td><td>1200 cm</td><td>how far light travels before it is gone. This is the whole read of how clean the water is: a few metres is a silty river, tens of metres is open sea</td></tr>
+<tr><td><b>Absorb Color</b></td><td>0.02, 0.09, 0.13</td><td>what the water absorbs down to</td></tr>
+<tr><td><b>Cross Fade Depth</b></td><td>12 cm</td><td>how far below the surface before it is fully underwater</td></tr>
+</tbody>
+</table></div>
+
+<h2>Crossing the surface</h2>
+
+<p>Crossing instantly is what makes a camera at the waterline flicker between two completely different images every frame it bobs. <b>Cross Fade Depth</b> is the band it fades across instead.</p>
+
+<div data-shot="underwater.crossing"></div>
+
+<div class="tw"><table class="free">
+<tbody>
+<tr><td><code>IsSubmerged()</code></td><td>whether the camera is under</td></tr>
+<tr><td><code>GetSubmersion()</code></td><td>0 above, 1 fully under. The crossfade value</td></tr>
+<tr><td><code>OnSubmergedChanged</code></td><td>bind sound, audio filtering, breath, whatever a project does when the head goes under</td></tr>
+</tbody>
+</table></div>
+
+<div class="note">
+The submersion test asks the same query everything else does, so the camera goes under at the height the waves actually put the surface, not at the body's still level. A swell passing over a swimmer's head submerges the view.
+</div>
+
+<h2>What is not done yet</h2>
+
+<div class="warn">
+Two parts of the underwater picture are not built. The <b>meniscus</b> - the line at the surface seen from underneath, where the world above goes to reflection - and <b>caustics seen from below</b>, on submerged surfaces. The absorption and the submersion state are what exists.
+</div>
+
+<p>The caustics that <i>are</i> implemented are drawn by the water surface downwards onto its bed, which is the view from above. See <a href="techniques.html#caustics">Caustics</a>.</p>
+
+<h2>Cost</h2>
+
+<p><code>M_MobWaterUnderwater</code> is <b>250 vertex, 143 pixel instructions, 2 samplers</b>. It covers the whole screen while it is drawn, which is the only time anything in this plugin does - but it is drawn only while the camera is submerged, and while it is, most of what it is covering is water that has stopped being drawn behind it.</p>
+
+<p><a class="cta" href="characters.html">Now characters in it &rarr;</a></p>
+
+</main>
+</body>
+</html>

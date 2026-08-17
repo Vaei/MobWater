@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Stylized &middot; MobWater</title>
+<link rel="icon" href="assets/icon.png">
+<link rel="stylesheet" href="assets/docs.css">
+<script>try{var t=localStorage.getItem('mob-theme');document.documentElement.dataset.theme=t||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light')}catch(e){}</script>
+<script src="assets/site.js" defer></script>
+<script src="assets/docs.js" defer></script>
+</head>
+<body>
+<main>
+
+<h1>Stylized</h1>
+<p class="lede">Water that reads by shape rather than by depth. Two presets: one that still behaves like water, and one that does not pretend to.</p>
+
+<p>The difference between stylized and realistic water is not one setting, it is a dozen agreeing with each other. A hard shallow colour wants tight foam and no detail normal; a soft absorption wants the opposite. Set half of them and the result reads as neither.</p>
+
+<div class="note">
+Every value in a look preset is per-body custom primitive data, so the stylized pool and the realistic harbour in the same level are the same material and share every shader permutation. A preset costs nothing to apply and nothing to have.
+</div>
+
+<h2>Stylized</h2>
+
+<p><code>WL_MobWater_Stylized</code>. Bright, saturated, and shallow water that is almost not there - the read is that you can see the bed through it and the colour is <i>in the depth</i>, not on the surface.</p>
+
+<div data-shot="stylized.pool"></div>
+
+<div class="tw"><table>
+<thead><tr><th>Setting</th><th></th><th>Why</th></tr></thead>
+<tbody>
+<tr><td>Shallow Color</td><td>0.20, 0.85, 0.80</td><td>nearly the deep colour, so clarity does the work rather than the tint</td></tr>
+<tr><td>Deep Color</td><td>0.02, 0.35, 0.70</td><td></td></tr>
+<tr><td>Fade Depth</td><td>260</td><td>short, so the grade happens where you can see it</td></tr>
+<tr><td>Clarity Depth</td><td>900</td><td>long, so the bed stays visible well out from the bank. This single value is what separates the references from painted glass</td></tr>
+<tr><td>Detail Strength</td><td>0.35</td><td>high frequency detail is what makes a surface read as photographed</td></tr>
+<tr><td>Foam Sharpness</td><td>8</td><td>a cut line, not a wet margin</td></tr>
+<tr><td>Foam Noise Amount</td><td>0</td><td>the contour follows the shoreline exactly. A wandering edge is what reads as texture on a stylized surface, whatever the foam itself is doing</td></tr>
+<tr><td>Foam Bands</td><td>0</td><td>hard edged, and not banded - see below</td></tr>
+<tr><td>Caustic Strength</td><td>0.55</td><td>bright and shallow-focused. In the references the caustic is a major read, not a subtlety</td></tr>
+<tr><td>Glint Threshold</td><td>0.18</td><td>distinct but not stamped. Stylized water sparkles; toon water has marks put on it</td></tr>
+<tr><td>Glint Emissive</td><td>3.0</td><td>the sparkle blooms past what the sun could account for</td></tr>
+<tr><td>Refraction</td><td>on, 0.45</td><td>the bed bending is most of why it reads as liquid</td></tr>
+</tbody>
+</table></div>
+
+<div class="caution">
+Bands are off here on purpose. Quantising foam only works once it is already a narrow band - applied to a region it turns the noise into mottled blotches, which is worse than the gradient it replaced.
+</div>
+
+<h2>Toon</h2>
+
+<p><code>WL_MobWater_Toon</code>. Flat colour, one foam line with a gap cut into it, and no sky at all. Tuned against a real pool rather than derived, so the values are the ones that were looked at.</p>
+
+<div data-shot="stylized.toon"></div>
+
+<div class="tw"><table>
+<thead><tr><th>Setting</th><th></th><th>Why</th></tr></thead>
+<tbody>
+<tr><td>Min Opacity</td><td>0.95</td><td>the bed is gone. Letting depth decide leaves a shallow pool showing the ground, which reads as the water being textured</td></tr>
+<tr><td>Clarity Depth</td><td>65</td><td></td></tr>
+<tr><td>Unlit</td><td>0.5</td><td>half emitted. All of it flattens the body into a decal; none of it lets a skylight that captured a field turn blue water green</td></tr>
+<tr><td>Detail Strength</td><td>0.0001</td><td>present but almost nothing. Zero is flatter than the reference and loses the last trace of movement</td></tr>
+<tr><td>Reflection Strength</td><td>0</td><td>a Fresnel reflection is a smooth ramp across the whole body and reads as varnish</td></tr>
+<tr><td>Foam Bands</td><td>1</td><td>one band</td></tr>
+<tr><td>Foam Band Separation</td><td>0.75</td><td>three quarters of it cut away. More bands crowd the shoreline; the separation is what gives the single line its gap</td></tr>
+<tr><td>Foam Noise Amount</td><td>0.4</td><td>the line wanders, which is the one place texture is wanted</td></tr>
+<tr><td>Edge Foam Width</td><td>0.25</td><td>wide, because on a body this opaque the shoreline term has nothing to work with</td></tr>
+<tr><td>Refraction</td><td>off</td><td>nothing behind the surface is visible to bend</td></tr>
+<tr><td>Caustic Strength</td><td>0.05</td><td>a trace. The bed is hidden, so this is only what catches at the very edge</td></tr>
+</tbody>
+</table></div>
+
+<div data-shot="stylized.bands"></div>
+
+<div class="tip">
+Several of these read as compromises on paper and are not. The surface keeps a trace of detail and half its lighting, because fully flat and fully emitted lost the water's shape entirely - it stopped being a body and became a blue polygon.
+</div>
+
+<h2>The gradient fork</h2>
+
+<p><code>MobWaterGradientCoord</code> exists in the shader library and turns the water column into a 0-1 coordinate a gradient ramp can be indexed by, for hard bands in any palette from the same tap. It is <b>written and not wired up</b>: the presets above get their look from absorption, opacity and foam instead. <a href="https://github.com/Vaei/GradientTool">GradientTool</a> is the intended companion for it.</p>
+
+<h2>Making your own</h2>
+
+<ol>
+<li>Duplicate the closest preset rather than starting from the defaults. The defaults are a neutral pool, not a starting point for a direction.</li>
+<li>Set the two colours, <b>Fade Depth</b> and <b>Clarity Depth</b> first, with foam off. Everything else sits on top of that read.</li>
+<li>Then foam, then glint. Both are easy to over-set against a colour that is not settled.</li>
+<li>Judge it under the <a href="install.html">ES3.1 preview</a>, and at the distance the player sees it.</li>
+</ol>
+
+<p><a class="cta" href="realistic.html">Now the realistic direction &rarr;</a></p>
+
+</main>
+</body>
+</html>

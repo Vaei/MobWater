@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Under the hood &middot; MobWater</title>
+<link rel="icon" href="assets/icon.png">
+<link rel="stylesheet" href="assets/docs.css">
+<script>try{var t=localStorage.getItem('mob-theme');document.documentElement.dataset.theme=t||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light')}catch(e){}</script>
+<script src="assets/site.js" defer></script>
+<script src="assets/docs.js" defer></script>
+</head>
+<body>
+<main>
+
+<h1>Under the hood</h1>
+<p class="lede">The contract between the component and the material, how the assets are built, and the traps that cost real time to find.</p>
+
+<div data-shot="internals.graph"></div>
+
+<h2 id="custom-primitive-data">Custom primitive data</h2>
+
+<p>The component writes these and the material reads them. Nothing in the engine ties the index one writes to the index the other reads; they agree because two files say the same number, and <b>Water &rarr; Verify Contract</b> is what notices when one of them stops saying it.</p>
+
+<div class="warn">
+There are <b>thirty six</b> of these and that is the engine's number, not a choice: <code>FCustomPrimitiveData</code> holds nine float4s. A write past the end is not an error, it is a no-op, and the material reads zero for the rest of the project's life with nothing said. <code>MobWaterComponent.cpp</code> carries a <code>static_assert</code> against the engine's constant so the next parameter that does not fit fails the build instead of failing silently.
+</div>
+
+<div class="tw"><table>
+<thead><tr><th>Index</th><th></th></tr></thead>
+<tbody>
+<tr><td>0, 1, 2</td><td>Shallow colour, linear RGB</td></tr>
+<tr><td>3, 4, 5</td><td>Deep colour, linear RGB</td></tr>
+<tr><td>6</td><td>Fade depth</td></tr>
+<tr><td>7</td><td>Clarity depth</td></tr>
+<tr><td>8</td><td>Shore foam depth</td></tr>
+<tr><td>9</td><td>Crest foam threshold</td></tr>
+<tr><td>10</td><td>Wave amplitude</td></tr>
+<tr><td>11</td><td>Shore fade distance</td></tr>
+<tr><td>12</td><td>Refraction strength</td></tr>
+<tr><td>13</td><td>Ripple strength</td></tr>
+<tr><td>14</td><td>Roughness</td></tr>
+<tr><td>15, 16</td><td>Flow velocity</td></tr>
+<tr><td>17, 18</td><td>Half extent</td></tr>
+<tr><td>19</td><td>Detail strength</td></tr>
+<tr><td>20</td><td>Caustic strength</td></tr>
+<tr><td>21</td><td>Caustic depth</td></tr>
+<tr><td>22</td><td>Foam noise amount <b>+ foam texture opacity in the fraction</b></td></tr>
+<tr><td>23</td><td>Foam sharpness</td></tr>
+<tr><td>24</td><td>Foam bands <b>+ band separation in the fraction</b></td></tr>
+<tr><td>25</td><td>Glint gloss</td></tr>
+<tr><td>26</td><td>Glint strength</td></tr>
+<tr><td>27</td><td>Glint threshold</td></tr>
+<tr><td>28</td><td>Detail scroll speed</td></tr>
+<tr><td>29</td><td>Macro strength</td></tr>
+<tr><td>30</td><td>Edge foam width <b>+ foam opacity in the fraction</b></td></tr>
+<tr><td>31</td><td>Minimum opacity</td></tr>
+<tr><td>32</td><td>Reflection strength</td></tr>
+<tr><td>33</td><td>Glint density</td></tr>
+<tr><td>34</td><td>Glint emissive</td></tr>
+<tr><td>35</td><td>Unlit</td></tr>
+</tbody>
+</table></div>
+
+<div data-shot="internals.cpd"></div>
+
+<h3>Packing</h3>
+
+<p>Three slots carry two values each, because the array is full and each pair is one control rather than two. The whole number is the first value in hundredths and the fraction is the second:</p>
+
+<pre><code>Packed = round(A * 100) + clamp(B, 0, 0.999)
+A      = floor(Packed) * 0.01
+B      = frac(Packed)</code></pre>
+
+<p>It costs the first value a hundredth of precision, which is invisible on a slider clamped to 0-1, and it is why those sliders have the ranges they do. The alternative was a fourth parameter that silently did nothing.</p>
+
+<div class="note">
+In a game world these are written as runtime data. In the editor they are written as <i>defaults</i> as well, so a saved level draws correctly before it is ever played - and as runtime data at the same time, because the renderer reads the runtime array and a default only copies itself across when the default changes.
+</div>
+
+<h2>The parameter collection</h2>
+
+<p><code>MPC_MobWater</code> carries everything that is not one body's business, published by the subsystem each tick it changes.</p>
+
+<div class="tw"><table class="free">
+<tbody>
+<tr><td><code>Time</code></td><td>water time, folded into the loop period</td></tr>
+<tr><td><code>WaveScales</code></td><td>wave count, amplitude, speed, choppiness</td></tr>
+<tr><td><code>WaveA0..7</code></td><td>direction xy, wavelength, amplitude</td></tr>
+<tr><td><code>WaveB0..7</code></td><td>steepness, phase offset</td></tr>
+<tr><td><code>RippleArea</code></td><td>field origin xy, extent, one over extent</td></tr>
+<tr><td><code>ExclusionA0..3</code></td><td>centre xy, half extent xy</td></tr>
+<tr><td><code>ExclusionB0..3</code></td><td>cos yaw, sin yaw, is-rectangular, strength</td></tr>
+<tr><td><code>ExclusionSoftness</code></td><td>all four softnesses, because a float4 is cheaper than four scalars</td></tr>
+<tr><td><code>SunDirection</code>, <code>SunColor</code></td><td>the directional light the glint follows</td></tr>
+<tr><td><code>ReflectionParams</code></td><td>sky intensity, rotation in turns</td></tr>
+</tbody>
+</table></div>
+
+<div class="important">
+The wave writes happen only when the set changes, not every tick - seventeen vector writes a frame for a value that almost never moves would be the subsystem's whole cost. The names are centralised in one namespace because Python writes the same strings, and a rename that reaches one side and not the other produces water that renders perfectly flat with nothing in any log.
+</div>
+
+<h2>The shader library</h2>
+
+<p><code>Shaders/Public/</code>, mapped to <code>/MobWater</code>. A pure function library: no <code>.usf</code>, no global shaders, no renderer code. Camera-relative throughout, because a UE5 world position is a large-world value that cannot be squared without losing it and the mobile pixel ALU is half precision besides.</p>
+
+<div class="tw"><table class="free">
+<tbody>
+<tr><td><code>MobWaterWaves.ush</code></td><td>the Gerstner sum. <b>This file and <code>MobWaterWaves.h</code> are one algorithm written twice</b>, and <code>mob_water_verify.py</code> asserts they agree</td></tr>
+<tr><td><code>MobWaterSurface.ush</code></td><td>depth recovery, absorption, foam, shoreline frames, exclusion, caustics, glint, Fresnel, the packing helpers</td></tr>
+<tr><td><code>MobWaterField.ush</code></td><td>the wave-equation step and reading the field back</td></tr>
+</tbody>
+</table></div>
+
+<p>The maths lives there and is reached from Custom nodes, so the graph stays a thin wiring layer over readable HLSL rather than a wall of nodes.</p>
+
+<h2>Regenerating</h2>
+
+<p><b>Water &rarr; Generate Materials</b> runs <code>Python/author_water.py</code>: the surface meshes, the generated textures, the parameter collection, the master, its thirty nine instances, the ripple materials, the underwater material, the wave presets and the look presets. <b>Set Up Water</b> is the same thing plus writing the project settings and refreshing placed water.</p>
+
+<p>Run it once after installing, and again after editing anything in <code>Shaders/</code> or a generator constant.</p>
+
+<p>Every phase is idempotent: an existing asset is emptied and rebuilt in place, so placed bodies keep their references and re-running is always safe.</p>
+
+<div class="important">
+The master and its instances are <b>not versioned</b> - <code>Content/Materials/</code> is gitignored. They are output: the <code>.ush</code> files and the builder are the source, a regenerate rewrites every one of them, and a shipped copy can silently drift from the shader it was built against. <code>Content/Meshes</code>, <code>Content/Textures</code>, <code>Content/Waves</code> and <code>Content/Looks</code> <i>are</i> versioned, because the settings name them by soft path and a clone without them has dangling references rather than water that has not been generated yet.
+</div>
+
+<h3>The collection is the exception</h3>
+
+<p><code>MPC_MobWater</code> is <b>not</b> rebuilt the way the materials are. Rebuilding it would issue new GUIDs, and every material referencing the old ones would silently compile them as zero. The generator adds any missing parameter, prunes any the materials no longer read, and touches nothing else - a parameter left behind in there is a knob wired to nothing that reads as a knob wired to something.</p>
+
+<h2>Verifying</h2>
+
+<p><code>mob_water_verify.py</code> asserts the claims one at a time, so a failure names the claim that stopped being true:</p>
+
+<ul>
+<li>The constants in <code>MobWaterWaves.h</code> match the defines in <code>MobWaterWaves.ush</code>.</li>
+<li>Every <code>MobWaterData</code> index matches the parameter index in the material, and none is at or past thirty six.</li>
+<li>The CPU evaluator and the shader agree, at 192 points across 3 instants. Worst disagreement to date: <b>0.00074 cm</b>.</li>
+<li>The generated content is the version this build expects.</li>
+</ul>
+
+<div class="caution">
+Run headlessly, the version check reports six assets missing that plainly exist. The asset registry has not scanned in a commandlet, so the existence check answers no for a folder that is full - the same trap the generator works around by loading assets rather than asking about them. It passes in the editor.
+</div>
+
+<h2>Gotchas</h2>
+
+<p>These each cost real time to find.</p>
+
+<div class="tw"><table class="free">
+<tbody>
+<tr><td><b>Custom primitive data past index 35 is silently discarded</b></td><td>not an error, a no-op. Three parameters were added, wrote past the end, and read as zero for weeks while every setting looked correct in the details panel</td></tr>
+<tr><td><b><code>does_asset_exist</code> lies in a commandlet</b></td><td>it reads the asset registry, and a registry that has not scanned answers no for assets that are plainly there. The create call then fails, because it cannot prompt about overwriting with nobody watching. Load the asset instead of asking about it</td></tr>
+<tr><td><b><code>delete_all_material_expressions_in_function</code> leaves nodes behind</b></td><td>so re-running a builder accumulates duplicate function inputs, and the caller's connections land on whichever copy the name lookup hits first. Loop until the graph is actually empty</td></tr>
+<tr><td><b>A Custom node cannot use a shared sampler</b></td><td>and the sixteen sampler budget is what binds on this renderer. Every tap therefore happens in a <code>TextureSample</code> node set to <code>Shared:Wrap</code>, and the maths takes already-sampled values</td></tr>
+<tr><td><b>A Custom node emits its whole body regardless of what reads it</b></td><td>so an unused branch is not free. Gate with static bool function inputs, not with an <code>if</code> on a value</td></tr>
+<tr><td><b>Editing a <code>.ush</code> needs an editor restart</b></td><td>not <code>recompileshaders changed</code>. That command does not pick up a <code>.ush</code> under a plugin's virtual shader path, and the material carries on running the shader it already had, with no error and no warning</td></tr>
+<tr><td><b>Rebuilding a parameter collection reissues its GUIDs</b></td><td>and every material referencing the old ones compiles them as zero. Additive plus a prune, never a rebuild</td></tr>
+<tr><td><b>The graph is laid out to the left of the origin</b></td><td>the material's output node sits at zero and cannot be moved, so numbering columns upwards from zero puts the whole graph to the right of the thing it feeds and every wire runs backwards</td></tr>
+<tr><td><b>A material instance validates every texture parameter's sampler type</b></td><td>including ones in a branch a static switch compiled away. A failed instance renders black rather than reporting anything</td></tr>
+<tr><td><b>Foam that only replaces base colour is not foam</b></td><td>the wave normal, the sun glint and the sky reflection all keep shading through it, and it reads as a white texture painted onto moving water. Foam has to suppress all three</td></tr>
+<tr><td><b>A vertex shader cannot read the depth buffer</b></td><td>which is why wave attenuation is weighted by distance to the body's own edge and not by how deep the water is. The edge is arithmetic, so the vertex shader and the CPU query can both have it</td></tr>
+<tr><td><b>Phase has to be folded on both terms before they meet</b></td><td>a world position a kilometre out times a wave number is thousands of radians, and a float has about seven digits. Unfolded, the surface reads as faceted far from the origin and smooth near it</td></tr>
+</tbody>
+</table></div>
+
+<h2>What is not built</h2>
+
+<div class="tw"><table class="free">
+<tbody>
+<tr><td><b>The baked FFT spectrum</b></td><td>the ocean runs a five-wave Gerstner set. <code>UMobWaterSpectrum</code> and the bake script do not exist yet</td></tr>
+<tr><td><b>The meniscus and underwater caustics</b></td><td>see <a href="underwater.html">Underwater</a></td></tr>
+<tr><td><b>Mesh exclusion</b></td><td>behaves as its bounding rectangle, and says so once</td></tr>
+<tr><td><b>Buoyancy</b></td><td>the query is shaped for it; the component is not written</td></tr>
+<tr><td><b>Waterfalls</b></td><td>a vertical sheet has no plan view, no shore distance and nowhere for the field to reach, so it is its own component and its own master rather than a fifth shape</td></tr>
+<tr><td><b>The gradient fork</b></td><td><code>MobWaterGradientCoord</code> is written and not wired up</td></tr>
+<tr><td><b>Per-shape icons</b></td><td><code>Resources/Icon*.png</code> is still MobLights' art</td></tr>
+</tbody>
+</table></div>
+
+</main>
+</body>
+</html>

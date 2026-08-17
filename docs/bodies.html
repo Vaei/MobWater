@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bodies of water &middot; MobWater</title>
+<link rel="icon" href="assets/icon.png">
+<link rel="stylesheet" href="assets/docs.css">
+<script>try{var t=localStorage.getItem('mob-theme');document.documentElement.dataset.theme=t||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light')}catch(e){}</script>
+<script src="assets/site.js" defer></script>
+<script src="assets/docs.js" defer></script>
+</head>
+<body>
+<main>
+
+<h1>Bodies of water</h1>
+<p class="lede">Which shape a thing is, and what changes when you pick it.</p>
+
+<p>The shape decides three things at once: the mesh that gets rasterised, the arithmetic that answers <i>how far is this point from the edge</i>, and the waves the body starts with. They are one choice because getting any of them wrong for the others reads as broken water rather than as a setting.</p>
+
+<div class="tw"><table>
+<thead><tr><th>Shape</th><th>Actor</th><th>Edge</th><th>Starts with</th></tr></thead>
+<tbody>
+<tr><td><b>Box</b></td><td>Water Pool</td><td>rectangle, from the half extent</td><td>Pond</td></tr>
+<tr><td><b>Disc</b></td><td>Water Pool</td><td>circle, from the half extent</td><td>Pond</td></tr>
+<tr><td><b>Spline</b>, closed</td><td>Water Lake</td><td>signed distance to the loop</td><td>Lake</td></tr>
+<tr><td><b>Spline</b>, open</td><td>Water River</td><td>distance across the ribbon</td><td>Lake</td></tr>
+<tr><td><b>Ocean</b></td><td>Water Ocean</td><td>none</td><td>Ocean</td></tr>
+</tbody>
+</table></div>
+
+<h2>Pools</h2>
+
+<p>A box or a disc: a puddle, a basin, a bath, a trough, a rice paddy, a flooded cellar. This is the shape most levels actually want, and the one the whole material is arranged around - a surface with an edge close enough to see, where the waves have to lie down before they reach it.</p>
+
+<div data-shot="bodies.pool"></div>
+
+<div class="tw"><table>
+<tr><td><b>Extent</b></td><td>half the size on X and Y. A disc uses both, so it can be an ellipse</td></tr>
+<tr><td><b>Depth</b></td><td>what a query answers when asked how deep the water is. Answered, not measured - the bed is only knowable per pixel and the CPU cannot read the depth buffer</td></tr>
+<tr><td><b>Shore Fade Distance</b></td><td>how far in from the edge the waves are flattened to nothing</td></tr>
+</table></div>
+
+<div class="important">
+<b>Depth</b> is what gameplay is told. The colour, the clarity and the foam come from the real bed behind the pixel, which is scene depth and nothing to do with this number. A pool whose <b>Depth</b> says two metres over a floor five centimetres down will read as five centimetres of water and float a boat two metres up.
+</div>
+
+<div data-shot="bodies.extent"></div>
+
+<h2>Lakes</h2>
+
+<p>A closed spline. The shoreline is whatever you draw and the water is everything inside it, triangulated across the bounds at <b>Grid Resolution</b> - the waves have nowhere else to go, so a lake tessellated too coarsely has waves that read as folds in a tarpaulin.</p>
+
+<p>Distance to the edge is a signed distance to the loop, so the wave attenuation follows an inlet into it and back out again the way it should.</p>
+
+<div data-shot="bodies.lake"></div>
+
+<h2>Rivers</h2>
+
+<p>The same component with the spline left open. The line is the middle of the river and <b>Widths</b> says how far the banks are, per point. A short list is padded with its last entry rather than refused, because a spline gains points by being dragged and water that vanished mid-edit would be worse than a river that stays its old width for a segment.</p>
+
+<div class="tw"><table>
+<tr><td><b>Segments Along</b></td><td>how many sections the length is cut into</td></tr>
+<tr><td><b>Segments Across</b></td><td>two is a flat ribbon. More lets a wave cross the river rather than only run along it</td></tr>
+</table></div>
+
+<div data-shot="bodies.river"></div>
+
+<div class="note">
+Flow moves what the water looks like: it drifts the detail normals and the caustics and biases where foam gathers. Set <b>Flow Space</b> to Local so it turns with the actor rather than staying on the level's compass. It does not carry a swimmer downstream, and nothing here carves a bank, cuts a waterfall or breaks into rapids.
+</div>
+
+<h2>Ocean</h2>
+
+<p>Water with no edge: a ring mesh kept centred on whatever is looking at it, dense in the middle and coarse at the horizon. Nothing attenuates its waves, because it has no bank for them to lie down at.</p>
+
+<p>The surface is a function of world position, so following the camera moves the <i>window</i> and not the water. Sail a hundred metres and the swell you were looking at is a hundred metres behind you, because it was never attached to the mesh in the first place.</p>
+
+<div data-shot="bodies.ocean"></div>
+
+<div class="tw"><table>
+<tr><td><b>Follow View</b></td><td>off, it stays where it was placed and has an edge like anything else</td></tr>
+<tr><td><b>Follow Snap</b></td><td>how far it moves at a time. The snap is what stops it swimming: following exactly means the vertices slide underneath the wave function every frame, and a wave evaluated at a moving vertex crawls even though the water is standing still</td></tr>
+</table></div>
+
+<div class="caution">
+An ocean is the one shape that can be decorative at real cost. If nothing has to float on it, turn <b>Cpu Queries</b> off and it stops paying for a wave evaluation nobody reads.
+</div>
+
+<p>It follows the view and has no bank, so there is rarely anywhere to click on it that is not already something else. <b>Water &rarr; Select Ocean</b> selects it without going through the outliner, and is greyed out when the level has none.</p>
+
+<h2>Overlapping bodies</h2>
+
+<p>Where two bodies cover the same point, the query answers with the deeper one. A shallow trough drawn across a lake is decoration on it, not a separate pool, and something falling in ends up in the lake.</p>
+
+<h2>Look presets</h2>
+
+<p>A <b>Look Preset</b> is copied onto the body and then forgotten. The values on the component are what it actually uses, so a preset is a starting point that can be adjusted rather than a link that overwrites the adjustment every time the level loads.</p>
+
+<p>Three ship with the plugin - <a href="stylized.html">Stylized and Toon</a>, and <a href="realistic.html">Realistic</a>. Every value in one is per-body data, so all three run on the same shaders and a level can carry all of them for one set of permutations.</p>
+
+<p><a class="cta" href="waves.html">Now the waves &rarr;</a></p>
+
+</main>
+</body>
+</html>

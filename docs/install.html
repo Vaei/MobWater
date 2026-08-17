@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Install &middot; MobWater</title>
+<link rel="icon" href="assets/icon.png">
+<link rel="stylesheet" href="assets/docs.css">
+<script>try{var t=localStorage.getItem('mob-theme');document.documentElement.dataset.theme=t||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light')}catch(e){}</script>
+<script src="assets/site.js" defer></script>
+<script src="assets/docs.js" defer></script>
+</head>
+<body>
+<main>
+
+<h1>Install</h1>
+<p class="lede">Clone, build, set up, place a pool. UE 5.8+.</p>
+
+<h2>Get the plugin</h2>
+
+<p>Clone into your project's <code>Plugins</code> folder:</p>
+
+<pre><code>cd YourProject/Plugins
+git clone git@github.com:Vaei/MobWater.git</code></pre>
+
+<p>Or, if your project is itself a git repository, as a submodule so the version is pinned:</p>
+
+<pre><code>git submodule add git@github.com:Vaei/MobWater.git Plugins/MobWater</code></pre>
+
+<p>No git: <a href="https://github.com/Vaei/MobWater/archive/refs/heads/main.zip">download the ZIP</a> and extract it to <code>YourProject/Plugins/MobWater</code>.</p>
+
+<p>Then regenerate project files and build. It carries a runtime and an editor C++ module, so the project has to be a C++ project - if yours is Blueprint only, add any C++ class once and Unreal converts it.</p>
+
+<h3>Companions</h3>
+
+<p>None is required.</p>
+
+<div class="tw"><table class="free">
+<tr><td><a href="https://github.com/Vaei/MobMaterials">MobMaterials</a></td><td>landscape, surface and foliage masters for the same renderer, which is what this water sits in and wets<br><code>git clone git@github.com:Vaei/MobMaterials.git</code></td></tr>
+<tr><td><a href="https://github.com/Vaei/MobLights">MobLights</a></td><td>local lights for a renderer that has none, and fog to put them in<br><code>git clone git@github.com:Vaei/MobLights.git</code></td></tr>
+<tr><td><a href="https://github.com/Vaei/MobFort">MobFort</a></td><td>stylized unlit character masters, for the characters standing in the water<br><code>git clone git@github.com:Vaei/MobFort.git</code></td></tr>
+<tr><td><a href="https://github.com/Vaei/ForwardRender">ForwardRender</a></td><td>puts the light vector on the MPC. Replaces the hotpatch module in the perf guide<br><code>git clone git@github.com:Vaei/ForwardRender.git</code></td></tr>
+</table></div>
+
+<h2>Project settings</h2>
+
+<p>Nothing here is checked at runtime. <code>Config/DefaultEngine.ini</code>, under <code>[/Script/Engine.RendererSettings]</code>.</p>
+
+<div class="tw"><table>
+<tr><td><b>Scene depth in the translucent pass</b></td><td>the one hard requirement. The bed, the water column, the shoreline foam and the caustics all come from it. Confirm it on your target platform before committing to any of this</td></tr>
+<tr><td><b>Scene colour in the translucent pass</b></td><td>only if <b>Refraction</b> is on. It is a per-body switch and it compiles the read out entirely, so a platform that will not copy scene colour is not a platform this is unusable on</td></tr>
+<tr><td><code>r.Substrate=false</code></td><td>the master is a legacy material graph</td></tr>
+<tr><td><code>r.EarlyZPass=0</code></td><td>no depth prepass, which is why fill is the whole cost model</td></tr>
+</table></div>
+
+<div class="warn">
+Verify scene depth in the translucent pass on the platform you are shipping to, not in the editor. Without it every body of water reads a flat bed: no shoreline, no clarity, no caustics, and a colour that never grades.
+</div>
+
+<h2>Set it up</h2>
+
+<p>Enable the plugin, restart, then <b>Water &rarr; Set Up Water</b> on the level editor toolbar. It authors the parameter collection, the master, its thirty nine instances, the surface meshes, the tiling textures, the wave presets and the look presets, points the project settings at all of them, and refreshes any water already standing in the level.</p>
+
+<div data-shots="install.menu, install.setup"></div>
+
+<div class="note">
+The materials are generated rather than shipped, because they are output: <code>Python/author_water.py</code> and <code>Shaders/</code> are the source. Generating is the only thing that wants the <b>Python Editor Script Plugin</b>, which this plugin enables for you. A project that never regenerates never loads Python.
+</div>
+
+<p><b>Generate Materials</b> is the same authoring step without the settings write or the refresh. Use it after editing a shader or a generator constant; use <b>Set Up Water</b> the first time.</p>
+
+<div class="important">
+Set Up Water writes to <code>Config/DefaultEngine.ini</code>. Under source control that file is usually read only, so it checks the file out first, and clears the flag if there is no source control provider to ask. Without that the settings apply for the session and are gone at the next restart, which reads as the setup not having worked rather than not having saved.
+</div>
+
+<p>Place a body before generating and you get a notification naming the shape it could not find a material for, with a link that generates them.</p>
+
+<h2>Place a pool</h2>
+
+<ol>
+<li>Drag a <b>Water Pool</b> out of the <b>Water</b> menu, or out of <b>Place Actors &rarr; Mob Water</b>, into a hollow.</li>
+<li>Set <b>Extent</b> to the size of the hollow and <b>Depth</b> to how deep the water is meant to be.</li>
+<li>Pick a <b>Look Preset</b> and press <b>Apply Look Preset</b>.</li>
+</ol>
+
+<div data-shots="install.place, install.details"></div>
+
+<div class="important">
+Size a body with <b>Extent</b>, never by scaling the actor. The component owns its own scale and sizes the unit mesh from the extent, and the vertex shader is told the half extent so it knows how far a vertex is from the bank. Scaling the actor tells it nothing.
+</div>
+
+<h3>The shapes</h3>
+
+<div class="tw"><table>
+<thead><tr><th>Shape</th><th>For</th></tr></thead>
+<tbody>
+<tr><td><b>Box</b></td><td>baths, troughs, flooded rooms, rice paddies</td></tr>
+<tr><td><b>Disc</b></td><td>puddles, basins, wells, ponds</td></tr>
+<tr><td><b>Lake</b></td><td>a closed spline. The shoreline is whatever you draw</td></tr>
+<tr><td><b>River</b></td><td>an open spline. The line is the middle and the widths say where the banks are</td></tr>
+<tr><td><b>Ocean</b></td><td>no edge, kept centred on the view</td></tr>
+</tbody>
+</table></div>
+
+<p>See <a href="bodies.html">Bodies of water</a> for which one a thing actually is.</p>
+
+<h3>Then make it interesting</h3>
+
+<p>Each is a tick box and each is a separate shader, so nothing you leave off costs anything.</p>
+
+<div class="tw"><table>
+<tr><td><b>Foam</b></td><td>the shoreline, the bank and the crests. On by default, and most of what makes water read as meeting something</td></tr>
+<tr><td><b>Foam Texture</b></td><td>the foam carries a pattern of its own, in the shoreline's frame rather than the current's</td></tr>
+<tr><td><b>Ripples</b></td><td>the body reads the interactive field, so anything moving through it leaves rings</td></tr>
+<tr><td><b>Refraction</b></td><td>the surface bends what is behind it. The one feature that reads scene colour</td></tr>
+</table></div>
+
+<div class="caution">
+Toggling any of the four swaps the material. Something that has to fade its foam out should be left ticked and driven by <b>Foam Opacity</b>, not switched off at the bottom of the fade.
+</div>
+
+<h2>Characters in it</h2>
+
+<p>Add a <b>Mob Water Interaction</b> component to a character and it reports immersion, fires enter, exit and splash events, leaves ripples, and drives wade and swim over a stock <code>UCharacterMovementComponent</code>. Nothing is spawned for you - bind <code>OnSplash</code> to your own Niagara. See <a href="characters.html">Characters in it</a>.</p>
+
+<p>Add a <b>Mob Water Underwater</b> component to a camera for the view from below. See <a href="underwater.html">Underwater</a>.</p>
+
+<h2>Preview on the target</h2>
+
+<p>Set the preview platform to <b>Android ES3.1</b> or <b>PC D3D Mobile</b> before judging anything. Water tuned under SM5 is water tuned twice.</p>
+
+<div data-shot="install.preview"></div>
+
+<h2>Check it worked</h2>
+
+<ul>
+<li>The <b>Water</b> menu is on the level editor toolbar.</li>
+<li><b>Water &rarr; Verify Contract</b> passes. Results in the Output Log.</li>
+<li>A placed pool grades from its shallow colour to its deep one as the bed drops away.</li>
+<li>The surface moves in the viewport without playing.</li>
+<li><code>mob.Water.Debug</code> reports a non-zero tick count and a clock that is advancing.</li>
+</ul>
+
+<p><a class="cta" href="bodies.html">Now fill a world &rarr;</a></p>
+
+</main>
+</body>
+</html>

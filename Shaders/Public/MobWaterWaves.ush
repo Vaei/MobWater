@@ -1,0 +1,169 @@
+// Copyright (c) Jared Taylor
+
+#pragma once
+
+/*
+ * /MobWater/Public/MobWaterWaves.ush
+ *
+ * The wave field, as the GPU evaluates it.
+ *
+ * This file and Source/MobWater/Public/MobWaterWaves.h are one algorithm written twice. Nothing in
+ * the build keeps them equal - mob_water_verify.py is what keeps them equal, by evaluating both at
+ * sampled points and failing by name when they part. Change one, change the other, run the verify.
+ *
+ * Two invariants that are easy to break by accident:
+ *
+ * - Every phase is folded before it is used. A world position out at a kilometre times a wave number
+ *   gives thousands of radians, and a float carries about seven digits, so the surface reads as
+ *   faceted far from the origin and smooth near it. Folding is exact here because the distance is
+ *   folded by the wavelength and the time term by a full turn, and both are periods of the wave.
+ *
+ * - Steepness is divided by the wave count. Adding a ninth wave to a calm sea must not fold it, and
+ *   the CPU divides the same way, so a vertex and a buoyancy query cannot disagree about it.
+ */
+
+#define MOB_WATER_PI 3.1415926535897932f
+#define MOB_WATER_GRAVITY 980.0f
+#define MOB_WATER_MAX_WAVES 8
+#define MOB_WATER_MAX_STEEPNESS 1.0f
+
+/** Matches FVector2f::GetSafeNormal, which returns zero rather than a NaN for a zero direction. */
+float2 MobWaterSafeNormal(float2 V)
+{
+	const float LenSq = dot(V, V);
+	return LenSq > 1e-8f ? V * rsqrt(LenSq) : float2(0.0f, 0.0f);
+}
+
+/** Radians per world unit. */
+float MobWaterWaveNumber(float Wavelength)
+{
+	return 2.0f * MOB_WATER_PI / max(Wavelength, 1.0f);
+}
+
+/** Radians per second, from the deep water dispersion relation. */
+float MobWaterAngularFrequency(float WaveNumberK)
+{
+	return sqrt(MOB_WATER_GRAVITY * WaveNumberK);
+}
+
+/** X - Period * floor(X / Period), which is a modulo that stays positive for negative X. */
+float MobWaterRepeat(float X, float Period)
+{
+	return X - Period * floor(X / Period);
+}
+
+/**
+ * One wave's contribution.
+ *
+ * WaveA is (Direction.x, Direction.y, Wavelength, Amplitude).
+ * WaveB is (Steepness, PhaseOffset, unused, unused).
+ *
+ * Packed into two vectors because that is what a material parameter collection can hold, and a
+ * collection is the only way to get a set of waves into every water material at once without a
+ * dynamic material instance per body.
+ */
+void MobWaterAccumWave(
+	float4 WaveA,
+	float4 WaveB,
+	float2 SampleXY,
+	float Time,
+	float AmplitudeScale,
+	float SpeedScale,
+	float ChoppinessScale,
+	float Count,
+	inout float3 Displacement,
+	inout float3 Slope,
+	inout float Fold)
+{
+	const float2 Dir = MobWaterSafeNormal(WaveA.xy);
+	const float Wavelength = WaveA.z;
+	const float Amplitude = WaveA.w * AmplitudeScale;
+
+	const float K = MobWaterWaveNumber(Wavelength);
+
+	const float Along = MobWaterRepeat(dot(Dir, SampleXY), max(Wavelength, 1.0f));
+	const float Turns = MobWaterRepeat(MobWaterAngularFrequency(K) * SpeedScale * Time, 2.0f * MOB_WATER_PI);
+
+	const float Phase = K * Along - Turns + WaveB.y;
+	const float SinPhase = sin(Phase);
+	const float CosPhase = cos(Phase);
+
+	const float Steep = min(WaveB.x * ChoppinessScale, MOB_WATER_MAX_STEEPNESS);
+	const float KA = K * Amplitude;
+	const float Q = KA > 1e-8f ? Steep / (KA * max(Count, 1.0f)) : 0.0f;
+
+	Displacement.x += Q * Amplitude * Dir.x * CosPhase;
+	Displacement.y += Q * Amplitude * Dir.y * CosPhase;
+	Displacement.z += Amplitude * SinPhase;
+
+	Slope.x -= Dir.x * KA * CosPhase;
+	Slope.y -= Dir.y * KA * CosPhase;
+	Slope.z -= Q * KA * SinPhase;
+
+	Fold += Q * KA * SinPhase;
+}
+
+/**
+ * The whole set, unrolled.
+ *
+ * Eight pairs rather than an array because a material Custom node takes scalars and vectors and has
+ * no way to be handed an array. A wave past Count contributes nothing, but Count is still passed
+ * rather than inferred, because it divides the steepness and the CPU divides by the same number.
+ */
+void MobWaterEvaluate(
+	float4 A0, float4 B0,
+	float4 A1, float4 B1,
+	float4 A2, float4 B2,
+	float4 A3, float4 B3,
+	float4 A4, float4 B4,
+	float4 A5, float4 B5,
+	float4 A6, float4 B6,
+	float4 A7, float4 B7,
+	float2 SampleXY,
+	float Time,
+	float AmplitudeScale,
+	float SpeedScale,
+	float ChoppinessScale,
+	float Count,
+	out float3 Displacement,
+	out float3 Normal,
+	out float Fold)
+{
+	Displacement = float3(0.0f, 0.0f, 0.0f);
+	Fold = 0.0f;
+
+	float3 Slope = float3(0.0f, 0.0f, 1.0f);
+
+	const float N = clamp(Count, 0.0f, (float)MOB_WATER_MAX_WAVES);
+
+	if (N > 0.5f) MobWaterAccumWave(A0, B0, SampleXY, Time, AmplitudeScale, SpeedScale, ChoppinessScale, N, Displacement, Slope, Fold);
+	if (N > 1.5f) MobWaterAccumWave(A1, B1, SampleXY, Time, AmplitudeScale, SpeedScale, ChoppinessScale, N, Displacement, Slope, Fold);
+	if (N > 2.5f) MobWaterAccumWave(A2, B2, SampleXY, Time, AmplitudeScale, SpeedScale, ChoppinessScale, N, Displacement, Slope, Fold);
+	if (N > 3.5f) MobWaterAccumWave(A3, B3, SampleXY, Time, AmplitudeScale, SpeedScale, ChoppinessScale, N, Displacement, Slope, Fold);
+	if (N > 4.5f) MobWaterAccumWave(A4, B4, SampleXY, Time, AmplitudeScale, SpeedScale, ChoppinessScale, N, Displacement, Slope, Fold);
+	if (N > 5.5f) MobWaterAccumWave(A5, B5, SampleXY, Time, AmplitudeScale, SpeedScale, ChoppinessScale, N, Displacement, Slope, Fold);
+	if (N > 6.5f) MobWaterAccumWave(A6, B6, SampleXY, Time, AmplitudeScale, SpeedScale, ChoppinessScale, N, Displacement, Slope, Fold);
+	if (N > 7.5f) MobWaterAccumWave(A7, B7, SampleXY, Time, AmplitudeScale, SpeedScale, ChoppinessScale, N, Displacement, Slope, Fold);
+
+	Normal = normalize(Slope);
+	Fold = saturate(Fold);
+}
+
+/**
+ * How much of a wave survives this close to the edge of its body, 0 at the bank and 1 out in it.
+ *
+ * Distance to the body's own edge, not the depth of the water. This is called from the vertex shader,
+ * and a vertex shader cannot read the depth buffer - the bed is only recoverable per pixel, by which
+ * point the vertex has already moved. The edge of a box, a disc or a spline is arithmetic, so both
+ * this and the CPU query can have it.
+ */
+float MobWaterShoreAttenuation(float EdgeDistance, float FadeDistance)
+{
+	if (FadeDistance <= 1e-8f)
+	{
+		return 1.0f;
+	}
+
+	const float T = saturate(EdgeDistance / FadeDistance);
+	return T * T * (3.0f - 2.0f * T);
+}
