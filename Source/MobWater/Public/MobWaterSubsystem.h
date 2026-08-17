@@ -133,6 +133,16 @@ public:
 	/** The same, without the lookup, for the query path that already has the subsystem in hand. */
 	float GetExclusionAt(const FVector& Location) const;
 
+	/**
+	 * Republishes exclusion immediately, centred where the caller says rather than on the view.
+	 *
+	 * For the parity check, which compares what the query answers against what the surface draws and
+	 * therefore has to know both at once. Left to the tick, the window follows a viewport camera that
+	 * is wherever it was left, so the check would be sampling a window whose position it had to guess.
+	 */
+	UFUNCTION(BlueprintCallable, Category="Water", meta=(WorldContext="WorldContextObject"))
+	static void RefreshExclusions(const UObject* WorldContextObject, const FVector& Centre);
+
 	void RegisterDisturber(class UMobWaterDisturbanceComponent* Disturber);
 	void UnregisterDisturber(class UMobWaterDisturbanceComponent* Disturber);
 
@@ -231,6 +241,9 @@ protected:
 	 * exactly the case that would otherwise lose its hole, ripples being off.
 	 */
 	void TickMeshExclusions();
+
+	/** Draws the outline window at an origin already chosen, and answers whether it drew anything. */
+	bool DrawMeshExclusions(const FVector2D& Origin);
 
 	/** Points the outline material at the outlines nearest the view. Answers how many it found. */
 	int32 PublishMeshExclusions(class UMaterialInstanceDynamic* Material, const FVector2D& Origin,

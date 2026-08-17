@@ -2363,6 +2363,103 @@ def build_spectrum_parity_probe():
     return mat
 
 
+EXCLUSION_PARITY_NAME = 'M_MobWaterExclusionParity'
+
+_CODE_EXCLUSION_PARITY = """
+const float Volumes = MobWaterExclusion(WorldXY, A0, B0, A1, B1, A2, B2, A3, B3, Softness);
+const float Outlines = MobWaterExclusionField(Sampled, UV);
+
+return float3(Volumes, Outlines, max(Volumes, Outlines));
+"""
+
+
+def build_exclusion_parity_probe(collection):
+    """A material that answers how much water is kept out of a point, the way the surface does.
+
+    Unlike the two wave probes this one reads the collection and the outline target rather than its
+    own parameters, and that is the whole test: the question is not whether one piece of arithmetic
+    was written twice correctly, it is whether what the subsystem published matches what the query
+    answers from the components themselves. A probe fed its own parameters would be comparing the
+    check's arithmetic against the plugin's, which nothing would ever be wrong about.
+
+    The degenerate pass a collection probe invites - nothing published, both sides answer zero, the
+    check reports agreement - is guarded by the caller, which fails unless some sampled point actually
+    had water taken out of it.
+
+    Three channels because the two routes fail differently and separately: an analytic volume out of
+    slots and a baked outline out of window are unrelated faults, and a probe answering only their
+    maximum could not say which had gone.
+    """
+    mat = g.get_or_create_material(g.MAT_ROOT, EXCLUSION_PARITY_NAME)
+
+    mat.set_editor_property('material_domain', unreal.MaterialDomain.MD_UI)
+    mat.set_editor_property('blend_mode', unreal.BlendMode.BLEND_OPAQUE)
+
+    uv = g.expr(mat, unreal.MaterialExpressionTextureCoordinate, -6, 0)
+
+    origin = g.vector_param4(mat, 'ProbeOrigin', (0.0, 0.0, 0.0, 0.0), 'Probe', -7, 2)
+
+    origin_xy = g.expr(mat, unreal.MaterialExpressionComponentMask, -5, 2)
+    origin_xy.set_editor_property('r', True)
+    origin_xy.set_editor_property('g', True)
+    origin_xy.set_editor_property('b', False)
+    origin_xy.set_editor_property('a', False)
+    g.link(origin, '', origin_xy, '')
+
+    extent = g.scalar_param(mat, 'ProbeExtent', 1000.0, 'Probe', -5, 4,
+                            'How much world the probe covers, corner to corner.')
+
+    sample_xy = g.custom(mat, _CODE_PARITY_UV, g.CMOT.CMOT_FLOAT2, ['UV', 'Origin', 'Extent'], [],
+                         -4, 1, 'Where in the world each texel stands for.', includes=INCLUDES)
+    g.link(uv, '', sample_xy, 'UV')
+    g.link(origin_xy, '', sample_xy, 'Origin')
+    g.link(extent, '', sample_xy, 'Extent')
+
+    inputs = ['WorldXY']
+    sources = [sample_xy]
+
+    for i in range(EXCLUSION_SLOTS):
+        for slot in ('A', 'B'):
+            sources.append(
+                g.collection_param(mat, collection, 'Exclusion%s%d' % (slot, i), -4, 6 + i * 2))
+            inputs.append('%s%d' % (slot, i))
+
+    sources.append(g.collection_param(mat, collection, 'ExclusionSoftness', -4, 15))
+    inputs.append('Softness')
+
+    area = g.collection_param(mat, collection, 'ExclusionArea', -4, 17)
+
+    exclusion_uv = g.custom(mat, _CODE_EXCLUSION_UV, g.CMOT.CMOT_FLOAT2, ['WorldXY', 'Area'], [],
+                            -3, 17, 'Where in the outline window this texel is.', includes=INCLUDES)
+    g.link(sample_xy, '', exclusion_uv, 'WorldXY')
+    g.link(area, '', exclusion_uv, 'Area')
+
+    mask = g.texture_param(mat, 'ExclusionField',
+                           g.existing(g.TEX_ROOT + '/RT_MobWaterExclusion'),
+                           'Probe', -2, 17,
+                           g.ST.SAMPLERTYPE_LINEAR_COLOR, exclusion_uv, '',
+                           'The window baked mesh outlines are drawn into.')
+    mask.set_editor_property(
+        'sampler_source', unreal.SamplerSourceMode.SSM_CLAMP_WORLD_GROUP_SETTINGS)
+
+    node = g.custom(mat, _CODE_EXCLUSION_PARITY, g.CMOT.CMOT_FLOAT3, inputs + ['Sampled', 'UV'], [],
+                    0, 8, 'How much water is kept out of here, as the GPU sees it.', includes=INCLUDES)
+
+    for name, src in zip(inputs, sources):
+        g.link(src, '', node, name)
+
+    g.link(mask, 'R', node, 'Sampled')
+    g.link(exclusion_uv, '', node, 'UV')
+
+    g.link_property(mat, node, '', g.MP.MP_EMISSIVE_COLOR)
+
+    g.spread(g.MEL.get_material_expressions(mat))
+    g.MEL.recompile_material(mat)
+    g.save(mat)
+
+    return mat
+
+
 def build_all():
     # Reloaded here rather than left to the caller: mob_water_graph holds the reference, so a stamp
     # edited during a session would otherwise keep writing the version it was imported with.
@@ -2423,6 +2520,9 @@ def build_all():
 
     sea_probe = build_spectrum_parity_probe()
     g.log('  probe %s' % sea_probe.get_path_name())
+
+    exclusion_probe = build_exclusion_parity_probe(collection)
+    g.log('  probe %s' % exclusion_probe.get_path_name())
 
     # Vertex as well as pixel, because this material's own cost is mostly vertex: the waves are
     # evaluated there, and the pixel count is dominated by what a translucent lit surface costs

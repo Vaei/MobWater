@@ -67,7 +67,9 @@ The compounding case is the one that needs it. A character standing on a ship de
 
 <h2>Why it can be trusted</h2>
 
-<p>The surface is a pure function of position and time. Two machines given the same instant compute the same answer with the same arithmetic - the CPU path and the shader are one algorithm written twice, and <b>Verify Contract</b> asserts they still agree. The last run: 192 points across 3 instants, worst disagreement <b>0.00074 cm</b>.</p>
+<p>The surface is a pure function of position and time. Two machines given the same instant compute the same answer with the same arithmetic - the CPU path and the shader are one algorithm written twice, and <b>Verify Contract</b> asserts they still agree. The last run: 384 points across 3 instants and 2 body scales, worst disagreement <b>0.00099 cm</b>.</p>
+
+<p>Exclusion is checked the same way and separately, because it is not one algorithm written twice - it is a publish path with a query on the other side of it. See <a href="exclusion.html#asserted">the two answers checked against each other</a>.</p>
 
 <p>So buoyancy on the client and buoyancy on the server are the same calculation, and the only thing that can part them is the clock. <a href="waves.html#the-clock">Bind a synchronised one.</a></p>
 

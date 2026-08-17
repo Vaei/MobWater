@@ -91,6 +91,12 @@ void UMobWaterExclusionComponent::PostEditChangeProperty(FPropertyChangedEvent& 
 	}
 }
 
+void UMobWaterExclusionComponent::RebuildSilhouette()
+{
+	BuildSilhouette();
+	MarkPackageDirty();
+}
+
 UStaticMesh* UMobWaterExclusionComponent::ResolveMesh() const
 {
 	if (Shape != EMobWaterExclusionShape::Mesh)

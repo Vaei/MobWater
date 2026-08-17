@@ -90,12 +90,14 @@ public:
 	void PackMeshForShader(FLinearColor& OutA, FLinearColor& OutB) const;
 
 	/** Whether this one is carved by the field's mask rather than by an analytic slot. */
+	UFUNCTION(BlueprintPure, Category="Exclusion")
 	bool IsMesh() const { return Shape == EMobWaterExclusionShape::Mesh && Silhouette.Num() > 0; }
 
 	/** The baked outline, uploaded once. Null until there is one, or off the game thread. */
 	class UTexture2D* GetSilhouetteTexture() const;
 
 	/** Half the footprint in world units, which for a mesh comes from the outline it was baked from. */
+	UFUNCTION(BlueprintPure, Category="Exclusion")
 	FVector2D GetWorldExtent() const;
 
 	/**
@@ -110,6 +112,16 @@ public:
 #if WITH_EDITOR
 	/** Rasterises the mesh's plan view into the mask, and works out the footprint it covers. */
 	void BuildSilhouette();
+
+	/**
+	 * The same, on demand.
+	 *
+	 * A mesh edited after its outline was baked is the case this exists for: nothing about editing a
+	 * mesh touches the components that cut with it, so the outline would stay whatever the mesh used
+	 * to be until something happened to re-register the component.
+	 */
+	UFUNCTION(CallInEditor, BlueprintCallable, Category="Exclusion")
+	void RebuildSilhouette();
 #endif
 
 protected:

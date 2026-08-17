@@ -58,6 +58,7 @@ REQUIRED = (
     '/MobWater/Materials/MI_MobWaterUnderwater_Caustics',
     '/MobWater/Materials/M_MobWaterParity',
     '/MobWater/Materials/M_MobWaterSpectrumParity',
+    '/MobWater/Materials/M_MobWaterExclusionParity',
     '/MobWater/Materials/M_MobWaterRippleStep',
     '/MobWater/Materials/M_MobWaterRippleCopy',
     '/MobWater/Materials/M_MobWaterRippleStamp',
@@ -181,8 +182,25 @@ def check(paths=None, required=None):
         elif digest != expected:
             drifted.append((path, digest))
 
+    # Loaded by name rather than trusted to the listing, because the listing is the asset registry
+    # and a commandlet's has not scanned the plugin's content - which would report every generated
+    # asset in the plugin as missing while all of them were sitting there.
     for path in sorted(missing):
-        failures.append('{0} is missing. Run {1} > Generate Materials.'.format(path, PLUGIN_NAME))
+        asset = unreal.load_asset(path)
+        if asset is None:
+            failures.append('{0} is missing. Run {1} > Generate Materials.'.format(path, PLUGIN_NAME))
+            continue
+
+        version, digest = read(asset)
+        if version is None:
+            failures.append('{0} carries no version stamp, so it predates versioning or was built '
+                            'by hand. Run {1} > Generate Materials.'.format(path, PLUGIN_NAME))
+        elif _parts(version) < minimum:
+            stale.append((path, version))
+        elif digest != expected:
+            drifted.append((path, digest))
+        else:
+            stamped += 1
 
     # One failure for the lot. A stale generate leaves every asset stale, and sixty lines saying so
     # buries whatever else the contract found.

@@ -601,9 +601,27 @@ void UMobWaterSubsystem::TickMeshExclusions()
 	// Snapped to whole texels, so a window that follows the view does not resample an outline into a
 	// crawling edge as the camera moves.
 	const FVector Centre = ViewLocation + ViewForward * (Extent * 0.25f);
-	ExclusionOrigin = FVector2D(
+
+	DrawMeshExclusions(FVector2D(
 		FMath::GridSnap(Centre.X, Texel),
-		FMath::GridSnap(Centre.Y, Texel));
+		FMath::GridSnap(Centre.Y, Texel)));
+}
+
+bool UMobWaterSubsystem::DrawMeshExclusions(const FVector2D& Origin)
+{
+	const UMobWaterSettings* Settings = GetDefault<UMobWaterSettings>();
+
+	UTextureRenderTarget2D* Target = Settings->ExclusionTarget.LoadSynchronous();
+	UMaterialInterface* Draw = Settings->ExclusionFieldMaterial.LoadSynchronous();
+
+	if (!Target || !Draw)
+	{
+		return false;
+	}
+
+	const float Extent = FMath::Max(Settings->RippleExtent, 100.f);
+
+	ExclusionOrigin = Origin;
 
 	SetVector(MobWaterParams::ExclusionArea, FLinearColor(
 		static_cast<float>(ExclusionOrigin.X), static_cast<float>(ExclusionOrigin.Y),
@@ -616,7 +634,7 @@ void UMobWaterSubsystem::TickMeshExclusions()
 
 	if (!ExclusionMaterial)
 	{
-		return;
+		return false;
 	}
 
 	const int32 Found = PublishMeshExclusions(ExclusionMaterial, ExclusionOrigin, Extent);
@@ -630,11 +648,34 @@ void UMobWaterSubsystem::TickMeshExclusions()
 			UKismetRenderingLibrary::ClearRenderTarget2D(GetWorld(), Target, FLinearColor::Black);
 			bExclusionFieldDrawn = false;
 		}
-		return;
+		return false;
 	}
 
 	UKismetRenderingLibrary::DrawMaterialToRenderTarget(GetWorld(), Target, ExclusionMaterial);
 	bExclusionFieldDrawn = true;
+
+	return true;
+}
+
+void UMobWaterSubsystem::RefreshExclusions(const UObject* WorldContextObject, const FVector& Centre)
+{
+	UMobWaterSubsystem* Subsystem = Get(WorldContextObject);
+	if (!Subsystem)
+	{
+		return;
+	}
+
+	Subsystem->PublishExclusions();
+
+	const UMobWaterSettings* Settings = GetDefault<UMobWaterSettings>();
+	const UTextureRenderTarget2D* Target = Settings->ExclusionTarget.LoadSynchronous();
+
+	const float Extent = FMath::Max(Settings->RippleExtent, 100.f);
+	const float Texel = Extent / FMath::Max(Target ? Target->SizeX : 256, 1);
+
+	Subsystem->DrawMeshExclusions(FVector2D(
+		FMath::GridSnap(Centre.X, Texel),
+		FMath::GridSnap(Centre.Y, Texel)));
 }
 
 int32 UMobWaterSubsystem::PublishMeshExclusions(UMaterialInstanceDynamic* Material,

@@ -125,6 +125,19 @@ def _log_error(message):
         print('[MobWater] ERROR {0}'.format(message))
 
 
+def _is_commandlet():
+    """Whether this is a commandlet rather than the editor.
+
+    Texture streaming does not run in one, so a probe that samples a texture asset reads whatever the
+    smallest resident mip holds. That is worth telling apart from the same symptom in the editor,
+    where it would mean something genuinely broken.
+    """
+    try:
+        return '-run=' in unreal.SystemLibrary.get_command_line().lower()
+    except AttributeError:
+        return False
+
+
 def _read(path):
     with open(path, 'r', encoding='utf-8') as handle:
         return handle.read()
@@ -529,6 +542,8 @@ def check_spectrum_parity():
     compared = 0
     moved = False
     drew = False
+    flat = True
+    first = None
 
     for time in SPECTRUM_TIMES:
         material.set_scalar_parameter_value('Time', time)
@@ -546,6 +561,11 @@ def check_spectrum_parity():
                     (pixel.r - 0.5) * PROBE_ENCODE_SCALE,
                     (pixel.g - 0.5) * PROBE_ENCODE_SCALE,
                     (pixel.b - 0.5) * PROBE_ENCODE_SCALE)
+
+                if first is None:
+                    first = gpu
+                elif abs(gpu.z - first.z) > 1e-4:
+                    flat = False
 
                 u = (tx + 0.5) / PROBE_SIZE
                 v = (ty + 0.5) / PROBE_SIZE
@@ -578,6 +598,21 @@ def check_spectrum_parity():
         return ['the spectrum probe drew nothing. Search the log for "Failed to compile Material '
                 '%s"; the real error is the tab-indented line after it.' % SPECTRUM_PROBE_PATH]
 
+    # One value everywhere, over twenty thousand centimetres of open sea, is not a sea - it is the
+    # atlas not having been sampled at all. That is what a commandlet does: nothing streams a texture
+    # in, so the tap reads whatever the smallest resident mip holds and every texel gets the same
+    # answer. Reported as a skip rather than a failure, because the maths it would be blaming is not
+    # what went wrong, and reported at all rather than silently passed.
+    if flat:
+        if _is_commandlet():
+            _log('  --  skipped: the baked atlas is not resident in a commandlet, so every texel of '
+                 'the probe came back the same. Run Water > Verify Contract from the editor.')
+            return []
+
+        return ['every texel of the spectrum probe came back the same value, over two hundred metres '
+                'of open sea. The atlas is not being sampled at all - either the texture parameter '
+                'is unbound or what is bound has no mip resident.']
+
     if not moved:
         failures.append('the baked sea never displaced anything, so parity was compared against '
                         'nothing. Check that %s has a table in it.' % SPECTRUM_ASSET_PATH)
@@ -586,6 +621,242 @@ def check_spectrum_parity():
         _log('  ok  {0} points across {1} instants, worst disagreement {2:.5f}cm'
              .format(compared, len(SPECTRUM_TIMES), worst))
         _log('      (a filter weight, not a difference of maths - both sides read the same bytes)')
+
+    return failures
+
+
+EXCLUSION_PROBE_PATH = '/MobWater/Materials/M_MobWaterExclusionParity'
+EXCLUSION_MESH_PATH = '/MobWater/Meshes/SM_MobWaterDisc'
+
+EXCLUSION_PROBE_SIZE = 12
+
+# A whole number of outline texels from the origin, so the window's own grid snap moves it nowhere and
+# the probe and the window are centred on the same point rather than within a texel of each other.
+# 2000cm over 256 texels is 7.8125, and both of these divide by it exactly.
+EXCLUSION_ORIGIN = (12000.0, -8000.0)
+
+# Well inside the outline window, which is 2000cm across and fades over its outer twentieth.
+EXCLUSION_EXTENT = 800.0
+
+# How much water, out of all of it.
+#
+# The analytic route is float arithmetic on both sides and agrees to rounding. The outline route
+# cannot: what the query samples directly, the surface reads back out of an eight bit target, so a
+# value halfway between two of its 255 steps is half a step out however right both sides are. That
+# floor is 0.002, and this is a little over it. Both figures are printed rather than assumed.
+EXCLUSION_TOLERANCE = 0.004
+EXCLUSION_MESH_TOLERANCE = 0.01
+
+# Half the mesh volume's footprint, and how soft its edge is. The softness is generous deliberately:
+# an edge sharper than the window's texels is an edge the window cannot carry, and a check that
+# demanded one would be measuring the target's resolution rather than the plugin's arithmetic.
+#
+# The generated meshes are a unit across, because a body of water carries its size in its own scale
+# rather than in its geometry - so a disc three metres wide is a scale of six hundred, not of three.
+EXCLUSION_MESH_SCALE = 600.0
+EXCLUSION_MESH_SOFTNESS = 150.0
+
+
+def _spawn_exclusion(world, shape, offset, extent, softness, strength=1.0, yaw=0.0, scale=1.0):
+    """One volume, placed relative to the probe's origin."""
+    location = unreal.Vector(EXCLUSION_ORIGIN[0] + offset[0], EXCLUSION_ORIGIN[1] + offset[1], 0.0)
+
+    actor = unreal.EditorLevelLibrary.spawn_actor_from_class(
+        unreal.MobWaterExclusion, location, unreal.Rotator(0.0, 0.0, yaw))
+    if actor is None:
+        return None
+
+    actor.set_actor_scale3d(unreal.Vector(scale, scale, scale))
+
+    component = actor.get_editor_property('exclusion')
+    component.set_editor_property('shape', shape)
+    component.set_editor_property('strength', strength)
+    component.set_editor_property('edge_softness', softness)
+    component.set_editor_property('blocks_submersion', True)
+
+    if shape == unreal.MobWaterExclusionShape.MESH:
+        component.set_editor_property('exclusion_mesh', unreal.load_asset(EXCLUSION_MESH_PATH))
+        component.rebuild_silhouette()
+    else:
+        component.set_editor_property('extent', unreal.Vector2D(extent[0], extent[1]))
+
+    return actor
+
+
+def _compare_exclusion(world, material, target, tolerance, label):
+    """Draws the probe and compares every texel against what the query answers there.
+
+    Returns (failures, worst, compared, most), where most is the largest exclusion any sampled point
+    actually had. A comparison over water nothing was keeping out agrees perfectly and proves nothing,
+    so the caller checks that figure before believing the rest.
+    """
+    unreal.RenderingLibrary.draw_material_to_render_target(world, target, material)
+
+    failures = []
+    worst = 0.0
+    compared = 0
+    most = 0.0
+
+    for ty in range(EXCLUSION_PROBE_SIZE):
+        for tx in range(EXCLUSION_PROBE_SIZE):
+            pixel = unreal.RenderingLibrary.read_render_target_raw_pixel(world, target, tx, ty)
+
+            u = (tx + 0.5) / EXCLUSION_PROBE_SIZE
+            v = (ty + 0.5) / EXCLUSION_PROBE_SIZE
+
+            location = unreal.Vector(
+                EXCLUSION_ORIGIN[0] + (u - 0.5) * EXCLUSION_EXTENT,
+                EXCLUSION_ORIGIN[1] + (v - 0.5) * EXCLUSION_EXTENT,
+                0.0)
+
+            cpu = unreal.MobWaterSubsystem.get_exclusion_at_location(world, location)
+            gpu = pixel.b
+
+            delta = abs(cpu - gpu)
+            worst = max(worst, delta)
+            most = max(most, cpu)
+            compared += 1
+
+            if delta > tolerance and len(failures) < 4:
+                failures.append(
+                    '{0} exclusion at ({1:.0f}, {2:.0f}): the query says {3:.4f} and the surface '
+                    'draws {4:.4f} (volumes {5:.4f}, outlines {6:.4f}), off by {7:.4f}. What is '
+                    'carved and what is answered are not the same shape.'
+                    .format(label, location.x, location.y, cpu, gpu, pixel.r, pixel.g, delta))
+
+    return failures, worst, compared, most
+
+
+def check_exclusion_parity():
+    """Reads back what the surface carves and compares it against what the query answers.
+
+    Both wave probes compare one piece of arithmetic written twice. This one does not: it places real
+    volumes, lets the subsystem publish them exactly as it would on any frame, and asks the two sides
+    the same question. What it catches is a break anywhere along that path - a slot packed the wrong
+    way round, an outline drawn into the wrong window, a rotation applied on one side only - none of
+    which any amount of reading the two implementations would show, because they are not two
+    implementations of anything.
+
+    Only volumes that block submersion are comparable, so the ones it places all do. The query counts
+    every volume there is and the surface only the nearest few, so it stays well under both budgets.
+    """
+    probe = unreal.load_asset(EXCLUSION_PROBE_PATH)
+    if probe is None:
+        return ['exclusion probe %s is missing. Run Water > Generate Materials.' % EXCLUSION_PROBE_PATH]
+
+    if unreal.load_asset(EXCLUSION_MESH_PATH) is None:
+        return ['%s is missing, so there is nothing to cut an outline from. Run Water > Generate '
+                'Materials.' % EXCLUSION_MESH_PATH]
+
+    world = unreal.EditorLevelLibrary.get_editor_world()
+    if world is None:
+        return ['no editor world to place exclusion volumes in.']
+
+    target = unreal.RenderingLibrary.create_render_target2d(
+        world, EXCLUSION_PROBE_SIZE, EXCLUSION_PROBE_SIZE, unreal.TextureRenderTargetFormat.RTF_RGBA32F)
+    if target is None:
+        return ['could not create a render target for the exclusion probe.']
+
+    material = unreal.MaterialLibrary.create_dynamic_material_instance(world, probe)
+    material.set_vector_parameter_value(
+        'ProbeOrigin', unreal.LinearColor(EXCLUSION_ORIGIN[0], EXCLUSION_ORIGIN[1], 0.0, 0.0))
+    material.set_scalar_parameter_value('ProbeExtent', EXCLUSION_EXTENT)
+
+    centre = unreal.Vector(EXCLUSION_ORIGIN[0], EXCLUSION_ORIGIN[1], 0.0)
+
+    failures = []
+    spawned = []
+
+    try:
+        # The analytic volumes on their own first. Run together with the outline the two routes are
+        # combined by a max, and either one being right would hide the other being wrong wherever
+        # they overlap.
+        spawned.append(_spawn_exclusion(
+            world, unreal.MobWaterExclusionShape.DISC, (-220.0, -180.0), (180.0, 180.0), 60.0))
+        spawned.append(_spawn_exclusion(
+            world, unreal.MobWaterExclusionShape.BOX, (240.0, 200.0), (150.0, 90.0), 40.0, yaw=31.0))
+        spawned.append(_spawn_exclusion(
+            world, unreal.MobWaterExclusionShape.RECT, (-260.0, 260.0), (120.0, 120.0), 50.0,
+            strength=0.45))
+
+        if None in spawned:
+            return ['could not place an exclusion volume in the editor world.']
+
+        unreal.MobWaterSubsystem.refresh_exclusions(world, centre)
+
+        volume_failures, volume_worst, volume_points, volume_most = _compare_exclusion(
+            world, material, target, EXCLUSION_TOLERANCE, 'analytic')
+
+        failures += volume_failures
+
+        if volume_most < 0.5:
+            failures.append('the analytic volumes kept no water out anywhere the probe looked, so '
+                            'exclusion parity was compared against nothing.')
+        elif not volume_failures:
+            _log('  ok  analytic: {0} points, worst disagreement {1:.5f}'
+                 .format(volume_points, volume_worst))
+
+        for actor in spawned:
+            unreal.EditorLevelLibrary.destroy_actor(actor)
+        spawned = []
+
+        # And now the outline, alone, which is the route that used to be a bounding rectangle.
+        mesh_volume = _spawn_exclusion(
+            world, unreal.MobWaterExclusionShape.MESH, (0.0, 0.0), (0.0, 0.0),
+            EXCLUSION_MESH_SOFTNESS, scale=EXCLUSION_MESH_SCALE)
+
+        if mesh_volume is None:
+            return ['could not place a mesh exclusion volume in the editor world.']
+
+        spawned.append(mesh_volume)
+
+        component = mesh_volume.get_editor_property('exclusion')
+        if not component.is_mesh():
+            failures.append('%s produced no outline, so the mesh route was never exercised - the '
+                            'mask is baked from the mesh description, which a mesh still building '
+                            'does not have yet.' % EXCLUSION_MESH_PATH)
+        else:
+            unreal.MobWaterSubsystem.refresh_exclusions(world, centre)
+
+            mesh_failures, mesh_worst, mesh_points, mesh_most = _compare_exclusion(
+                world, material, target, EXCLUSION_MESH_TOLERANCE, 'outline')
+
+            failures += mesh_failures
+
+            if mesh_most < 0.5:
+                failures.append('the baked outline kept no water out anywhere the probe looked. '
+                                'Either it was not drawn into the window or the window is not where '
+                                'the probe is.')
+            elif not mesh_failures:
+                _log('  ok  outline: {0} points, worst disagreement {1:.5f}'
+                     .format(mesh_points, mesh_worst))
+
+            # The outline is a disc, so its bounding rectangle's corners are outside it. This is the
+            # one assertion that says the mesh route is the mesh rather than the box around it, and
+            # it is worth stating separately: a bounding rectangle agrees with itself perfectly on
+            # both sides, so every comparison above would pass while the shape was wrong.
+            reach = component.get_world_extent()
+            corner = unreal.Vector(
+                EXCLUSION_ORIGIN[0] + reach.x * 0.92,
+                EXCLUSION_ORIGIN[1] + reach.y * 0.92,
+                0.0)
+
+            at_corner = unreal.MobWaterSubsystem.get_exclusion_at_location(world, corner)
+            if at_corner > 0.01:
+                failures.append('the outline excludes {0:.3f} at the corner of its own bounding '
+                                'rectangle, where the mesh is not. It is behaving as its bounds '
+                                'rather than as its shape.'.format(at_corner))
+            else:
+                _log('  ok  outline is the shape and not its bounds ({0:.0f}, {1:.0f} is clear)'
+                     .format(reach.x, reach.y))
+    finally:
+        for actor in spawned:
+            if actor:
+                unreal.EditorLevelLibrary.destroy_actor(actor)
+
+        # Left published, the window keeps whatever the check put in it and every body of water in
+        # the level has a hole cut in it by a volume that no longer exists.
+        unreal.MobWaterSubsystem.refresh_exclusions(world, centre)
 
     return failures
 
@@ -616,6 +887,12 @@ def run():
         failures += check_spectrum_parity()
     else:
         _log('  --  skipped: needs the editor to render the probe.')
+
+    _log(' what the query answers against what the surface carves')
+    if unreal:
+        failures += check_exclusion_parity()
+    else:
+        _log('  --  skipped: needs the editor to place volumes and render the probe.')
 
     importlib.reload(mob_water_version)
     _log(' generated content is version %s' % mob_water_version.plugin_version())

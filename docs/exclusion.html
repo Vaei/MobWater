@@ -113,6 +113,18 @@ It costs the water nothing to read. The ripple tap already fetches all four chan
 Only volumes with <b>Blocks Submersion</b> on reach the query. One that merely carves the surface has excluded nothing from the water, only from the picture of it.
 </div>
 
+<h2 id="asserted">The two answers are checked against each other</h2>
+
+<p><b>Verify Contract</b> places real volumes, lets the subsystem publish them exactly as it would on any frame, and then asks the surface and the query the same question at a grid of points. The waves are one piece of arithmetic written twice and their probe compares the two; this is not that. What it catches is a break anywhere along the path between them - a slot packed the wrong way round, an outline drawn into the wrong window, a rotation applied on one side only - none of which reading the two implementations would ever show.</p>
+
+<div class="tw"><table class="free">
+<tbody>
+<tr><td><b>Analytic volumes</b></td><td>144 points, worst disagreement <b>0.00001</b> out of a full exclusion of 1</td></tr>
+<tr><td><b>A baked outline</b></td><td>144 points, worst disagreement <b>0.00067</b>. Looser by design: the query samples the mask directly and the surface reads it back out of an eight bit window, so a value halfway between two of its 255 steps is half a step out however right both sides are</td></tr>
+<tr><td><b>The shape, not its bounds</b></td><td>a disc outline is asserted to keep no water out at the corner of its own bounding rectangle. Stated separately because a bounding rectangle agrees with itself perfectly on both sides, so every comparison above would pass while the shape was wrong</td></tr>
+</tbody>
+</table></div>
+
 <p><a class="cta" href="underwater.html">Now the view from below &rarr;</a></p>
 
 </main>
