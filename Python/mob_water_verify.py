@@ -40,6 +40,9 @@ HEADER = os.path.join(PLUGIN_ROOT, 'Source', 'MobWater', 'Public', 'MobWaterWave
 SHADER = os.path.join(PLUGIN_ROOT, 'Shaders', 'Public', 'MobWaterWaves.ush')
 TYPES = os.path.join(PLUGIN_ROOT, 'Source', 'MobWater', 'Public', 'MobWaterTypes.h')
 
+SPECTRUM_HEADER = os.path.join(PLUGIN_ROOT, 'Source', 'MobWater', 'Public', 'MobWaterSpectrum.h')
+SPECTRUM_SHADER = os.path.join(PLUGIN_ROOT, 'Shaders', 'Public', 'MobWaterSpectrum.ush')
+
 
 # The custom primitive data layout, as the README and the generator both understand it.
 #
@@ -123,21 +126,27 @@ def check_constants():
     header = _read(HEADER)
     shader = _read(SHADER)
 
+    spectrum_header = _read(SPECTRUM_HEADER)
+    spectrum_shader = _read(SPECTRUM_SHADER)
+
     pairs = [
-        ('Gravity', 'Gravity', 'MOB_WATER_GRAVITY'),
-        ('MaxWaves', 'MaxWaves', 'MOB_WATER_MAX_WAVES'),
-        ('MaxSteepness', 'MaxSteepness', 'MOB_WATER_MAX_STEEPNESS'),
+        ('Gravity', 'Gravity', 'MOB_WATER_GRAVITY', header, shader),
+        ('MaxWaves', 'MaxWaves', 'MOB_WATER_MAX_WAVES', header, shader),
+        ('MaxSteepness', 'MaxSteepness', 'MOB_WATER_MAX_STEEPNESS', header, shader),
+        # Off by one and every tile boundary in the ocean carries a band of water from the wrong
+        # frame, which is one texel wide and therefore looks like a compression artefact.
+        ('Gutter', 'Gutter', 'MOB_WATER_SPECTRUM_GUTTER', spectrum_header, spectrum_shader),
     ]
 
     failures = []
-    for label, cpp_name, hlsl_name in pairs:
-        cpp_value = _cpp_constant(header, cpp_name)
-        hlsl_value = _hlsl_define(shader, hlsl_name)
+    for label, cpp_name, hlsl_name, cpp_text, hlsl_text in pairs:
+        cpp_value = _cpp_constant(cpp_text, cpp_name)
+        hlsl_value = _hlsl_define(hlsl_text, hlsl_name)
 
         if cpp_value is None:
-            failures.append('{0}: not found in MobWaterWaves.h'.format(label))
+            failures.append('{0}: not found in the header'.format(label))
         elif hlsl_value is None:
-            failures.append('{0}: not found in MobWaterWaves.ush'.format(label))
+            failures.append('{0}: not found in the shader'.format(label))
         elif cpp_value != hlsl_value:
             failures.append('{0}: header says {1}, shader says {2}'.format(label, cpp_value, hlsl_value))
         else:
@@ -346,6 +355,147 @@ def check_wave_parity():
     return failures
 
 
+SPECTRUM_PROBE_PATH = '/MobWater/Materials/M_MobWaterSpectrumParity'
+SPECTRUM_ASSET_PATH = '/MobWater/Spectra/SP_MobWater_Ocean'
+
+# Wider than the wave probe's, and deliberately: it has to cross several tiles so a tile boundary and
+# the gutter that stands in for wrapping there are both inside the sample set.
+SPECTRUM_EXTENT = 20000.0
+
+# Instants that land between frames as well as on them. A blend weight of zero would compare the two
+# implementations at the one moment where neither is interpolating.
+SPECTRUM_TIMES = [0.0, 2.34, 11.71]
+
+# Centimetres.
+#
+# Looser than the wave probe's, and that is the honest number rather than a concession. Both sides
+# read the same bytes, so nothing here is a difference of opinion about the sea - what is left is
+# that the GPU's bilinear weights are fixed point, and eight bits of subtexel precision across a
+# texel most of a metre wide is half a millimetre whatever either side does. The check prints what it
+# actually measured, and that figure is the one the docs quote.
+#
+# It found a real fault at ten times this, and the fault was the sampler rather than the maths: the
+# shared wrap sampler is anisotropic, and an anisotropic read of a frame atlas averages in the
+# neighbouring frame. The taps name their mip level now, which is what makes a widening filter
+# impossible. Anything that is not rounding lands well outside this - an atlas addressed at the wrong
+# scale, a frame index off by one, a decode that lost its bias, a gutter that is not there.
+SPECTRUM_TOLERANCE = 0.2
+
+
+def check_spectrum_parity():
+    """Reads the baked sea on the GPU and in the query, and compares them."""
+    spectrum = unreal.load_asset(SPECTRUM_ASSET_PATH)
+    if spectrum is None:
+        return ['%s is missing. Run Water > Bake Ocean Spectrum.' % SPECTRUM_ASSET_PATH]
+
+    if spectrum.get_table_bytes() == 0:
+        return ['%s has no query table, so a dedicated server would answer a flat sea while the '
+                'clients drew waves. Run Water > Bake Ocean Spectrum.' % SPECTRUM_ASSET_PATH]
+
+    probe = unreal.load_asset(SPECTRUM_PROBE_PATH)
+    if probe is None:
+        return ['spectrum probe %s is missing. Run Water > Generate Materials.' % SPECTRUM_PROBE_PATH]
+
+    world = unreal.EditorLevelLibrary.get_editor_world()
+    if world is None:
+        return ['no editor world to render the spectrum probe in.']
+
+    target = unreal.RenderingLibrary.create_render_target2d(
+        world, PROBE_SIZE, PROBE_SIZE, unreal.TextureRenderTargetFormat.RTF_RGBA32F)
+    if target is None:
+        return ['could not create a render target for the spectrum probe.']
+
+    material = unreal.MaterialLibrary.create_dynamic_material_instance(world, probe)
+
+    resolution = spectrum.get_editor_property('resolution')
+    frames = spectrum.get_editor_property('frames')
+
+    material.set_vector_parameter_value('SpectrumParams', unreal.LinearColor(
+        spectrum.get_editor_property('tile_size'),
+        spectrum.get_editor_property('loop_period'),
+        float(resolution),
+        float(frames)))
+
+    material.set_vector_parameter_value('SpectrumScale', unreal.LinearColor(
+        spectrum.get_editor_property('horizontal_scale'),
+        spectrum.get_editor_property('vertical_scale'),
+        spectrum.get_editor_property('normal_scale'),
+        float(spectrum.get_editor_property('atlas_columns'))))
+
+    material.set_texture_parameter_value('SpectrumDisplacement',
+                                         spectrum.get_editor_property('displacement_texture'))
+
+    material.set_vector_parameter_value('ProbeOrigin', unreal.LinearColor(
+        PROBE_ORIGIN[0], PROBE_ORIGIN[1], 0.0, 0.0))
+    material.set_scalar_parameter_value('ProbeExtent', SPECTRUM_EXTENT)
+    material.set_scalar_parameter_value('EncodeScale', PROBE_ENCODE_SCALE)
+
+    failures = []
+    worst = 0.0
+    compared = 0
+    moved = False
+    drew = False
+
+    for time in SPECTRUM_TIMES:
+        material.set_scalar_parameter_value('Time', time)
+
+        unreal.RenderingLibrary.draw_material_to_render_target(world, target, material)
+
+        for ty in range(PROBE_SIZE):
+            for tx in range(PROBE_SIZE):
+                pixel = unreal.RenderingLibrary.read_render_target_raw_pixel(world, target, tx, ty)
+
+                if pixel.r != 0.0 or pixel.g != 0.0 or pixel.b != 0.0:
+                    drew = True
+
+                gpu = unreal.Vector(
+                    (pixel.r - 0.5) * PROBE_ENCODE_SCALE,
+                    (pixel.g - 0.5) * PROBE_ENCODE_SCALE,
+                    (pixel.b - 0.5) * PROBE_ENCODE_SCALE)
+
+                u = (tx + 0.5) / PROBE_SIZE
+                v = (ty + 0.5) / PROBE_SIZE
+
+                sample = unreal.Vector2D(
+                    PROBE_ORIGIN[0] + (u - 0.5) * SPECTRUM_EXTENT,
+                    PROBE_ORIGIN[1] + (v - 0.5) * SPECTRUM_EXTENT)
+
+                cpu, _fold = unreal.MobWaterStatics.evaluate_spectrum(spectrum, sample, time)
+
+                delta = max(abs(cpu.x - gpu.x), abs(cpu.y - gpu.y), abs(cpu.z - gpu.z))
+                worst = max(worst, delta)
+                compared += 1
+
+                if abs(cpu.z) > 1e-3:
+                    moved = True
+
+                if not drew:
+                    continue
+
+                if delta > SPECTRUM_TOLERANCE and len(failures) < 4:
+                    failures.append(
+                        'spectrum parity at ({0:.0f}, {1:.0f}) t={2}: CPU ({3:.4f}, {4:.4f}, {5:.4f}) '
+                        'GPU ({6:.4f}, {7:.4f}, {8:.4f}), off by {9:.4f}cm. The atlas and the table '
+                        'are not being read as the same field.'
+                        .format(sample.x, sample.y, time, cpu.x, cpu.y, cpu.z,
+                                gpu.x, gpu.y, gpu.z, delta))
+
+    if not drew:
+        return ['the spectrum probe drew nothing. Search the log for "Failed to compile Material '
+                '%s"; the real error is the tab-indented line after it.' % SPECTRUM_PROBE_PATH]
+
+    if not moved:
+        failures.append('the baked sea never displaced anything, so parity was compared against '
+                        'nothing. Check that %s has a table in it.' % SPECTRUM_ASSET_PATH)
+
+    if not failures:
+        _log('  ok  {0} points across {1} instants, worst disagreement {2:.5f}cm'
+             .format(compared, len(SPECTRUM_TIMES), worst))
+        _log('      (a filter weight, not a difference of maths - both sides read the same bytes)')
+
+    return failures
+
+
 def run():
     """Every check. Returns True when they all pass."""
     _log('Verifying contract')
@@ -361,6 +511,12 @@ def run():
     _log(' numeric CPU and GPU wave parity')
     if unreal:
         failures += check_wave_parity()
+    else:
+        _log('  --  skipped: needs the editor to render the probe.')
+
+    _log(' numeric CPU and GPU parity on the baked sea')
+    if unreal:
+        failures += check_spectrum_parity()
     else:
         _log('  --  skipped: needs the editor to render the probe.')
 

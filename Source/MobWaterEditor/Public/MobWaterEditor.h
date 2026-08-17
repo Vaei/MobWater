@@ -56,6 +56,14 @@ private:
 	static FVector PlacementLocation();
 
 	/** Asserts the contract the material and the component both claim to meet. */
+	/**
+	 * Solves a Phillips sea and bakes it.
+	 *
+	 * Its own entry rather than part of a generate, because it is minutes of arithmetic and nothing
+	 * about authoring materials changes the sea. A generate only runs it when there is no sea at all.
+	 */
+	static void BakeSpectrum();
+
 	static void VerifyContract();
 
 	/** Instructions, permutations and texture memory, measured rather than claimed. */

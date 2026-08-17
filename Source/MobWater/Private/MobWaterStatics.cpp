@@ -3,6 +3,7 @@
 #include "MobWaterStatics.h"
 
 #include "MobWaterComponent.h"
+#include "MobWaterSpectrum.h"
 #include "MobWaterSubsystem.h"
 #include "MobWaterWavePreset.h"
 
@@ -111,6 +112,22 @@ void UMobWaterStatics::EvaluateWavePresetSurface(const UMobWaterWavePreset* Pres
 	Fold = Sample.Fold;
 }
 
+void UMobWaterStatics::EvaluateSpectrum(const UMobWaterSpectrum* Spectrum, FVector2D WorldXY, float Time,
+	FVector& Displacement, float& Fold)
+{
+	Displacement = FVector::ZeroVector;
+	Fold = 0.f;
+
+	if (!Spectrum || !Spectrum->IsUsable())
+	{
+		return;
+	}
+
+	float Folding = 0.f;
+	Displacement = FVector(Spectrum->SampleDisplacement(FVector2f(WorldXY), Time, Folding));
+	Fold = Folding;
+}
+
 FMobWaterInfo UMobWaterStatics::EvaluateWaterAt(const UObject* WorldContextObject, FVector Location,
 	float StillSurfaceZ, float WaterDepth, float ShoreFade)
 {
@@ -125,11 +142,11 @@ FMobWaterInfo UMobWaterStatics::EvaluateWaterAt(const UObject* WorldContextObjec
 }
 
 FMobWaterInfo UMobWaterStatics::EvaluateWaterAtNative(const FMobWaterWaveParams& Params, const FVector& Location,
-	float StillSurfaceZ, float WaterDepth, float ShoreFade, float Time)
+	float StillSurfaceZ, float WaterDepth, float ShoreFade, float Time, const UMobWaterSpectrum* Spectrum)
 {
 	const FVector2f WorldXY = FVector2f(static_cast<float>(Location.X), static_cast<float>(Location.Y));
 
-	const FMobWaterSample Sample = FMobWaterWaves::Surface(Params, WorldXY, Time);
+	const FMobWaterSample Sample = MobWaterCombined::Surface(Params, Spectrum, WorldXY, Time);
 
 	// Waves lie down towards the bank, and the query has to agree with the vertex about that or
 	// buoyancy floats a crate above a shoreline the surface has already flattened.

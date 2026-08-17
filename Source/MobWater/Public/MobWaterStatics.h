@@ -8,6 +8,7 @@
 #include "Kismet/BlueprintFunctionLibrary.h"
 #include "MobWaterStatics.generated.h"
 
+class UMobWaterSpectrum;
 class UMobWaterWavePreset;
 
 /**
@@ -75,6 +76,16 @@ public:
 		FVector& Displacement, FVector& Normal, float& Fold);
 
 	/**
+	 * Where the baked sea moved a point, from the table rather than from the texture.
+	 *
+	 * Explicit rather than looked up because this is the function the spectrum's parity test drives,
+	 * and it has to be able to ask a named asset about a named instant with no world state in the way.
+	 */
+	UFUNCTION(BlueprintCallable, Category="Water|Waves")
+	static void EvaluateSpectrum(const UMobWaterSpectrum* Spectrum, FVector2D WorldXY, float Time,
+		FVector& Displacement, float& Fold);
+
+	/**
 	 * The surface above a world XY, walked back so the answer is over the column asked about rather
 	 * than over wherever that column's water drifted to.
 	 */
@@ -97,7 +108,13 @@ public:
 	static FMobWaterInfo EvaluateWaterAt(const UObject* WorldContextObject, FVector Location,
 		float StillSurfaceZ, float WaterDepth, float ShoreFade = 1.f);
 
-	/** Native access to the same evaluation, without a preset asset in the way. */
+	/**
+	 * Native access to the same evaluation, without a preset asset in the way.
+	 *
+	 * Spectrum is added to the Gerstner set rather than replacing it, so an ocean whose sea state has
+	 * not been baked yet still has waves instead of turning to glass.
+	 */
 	static FMobWaterInfo EvaluateWaterAtNative(const FMobWaterWaveParams& Params, const FVector& Location,
-		float StillSurfaceZ, float WaterDepth, float ShoreFade, float Time);
+		float StillSurfaceZ, float WaterDepth, float ShoreFade, float Time,
+		const UMobWaterSpectrum* Spectrum = nullptr);
 };

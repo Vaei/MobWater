@@ -413,6 +413,17 @@ TSharedRef<SWidget> FMobWaterEditorModule::BuildMenu()
 			FCanExecuteAction::CreateStatic(&FMobWaterEditorModule::IsPythonAvailable)));
 
 	Menu.AddMenuEntry(
+		LOCTEXT("BakeSpectrum", "Bake Ocean Spectrum"),
+		LOCTEXT("BakeSpectrumTip",
+			"Solves a Phillips sea offline and bakes it into the two atlases and the table the ocean "
+			"reads. Minutes rather than seconds, and only worth running when the sea state itself is "
+			"being changed - the parameters are at the top of mob_water_spectrum.py."),
+		FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("Icons.Convert")),
+		FUIAction(
+			FExecuteAction::CreateStatic(&FMobWaterEditorModule::BakeSpectrum),
+			FCanExecuteAction::CreateStatic(&FMobWaterEditorModule::IsPythonAvailable)));
+
+	Menu.AddMenuEntry(
 		LOCTEXT("Verify", "Verify Contract"),
 		LOCTEXT("VerifyTip",
 			"Asserts what the documentation claims: that the wave maths in the header and the shader "
@@ -559,7 +570,7 @@ TArray<FString> FMobWaterEditorModule::AssignGeneratedAssets()
 		// A spline body generates its own mesh, so the entry here is only for the material; the mesh
 		// slot is never read for that shape.
 		{ EMobWaterShape::Spline, TEXT("/MobWater/Meshes/SM_MobWaterPlane"), TEXT("Spline") },
-		{ EMobWaterShape::Ocean,  TEXT("/MobWater/Meshes/SM_MobWaterOceanRing"), TEXT("Disc") },
+		{ EMobWaterShape::Ocean,  TEXT("/MobWater/Meshes/SM_MobWaterOceanRing"), TEXT("Ocean") },
 	};
 
 	// The mask space rather than a list, so another feature is one constant rather than more lines.
@@ -913,6 +924,14 @@ void FMobWaterEditorModule::ReportCost()
 		TEXT("import importlib, mob_water_report; ")
 		TEXT("importlib.reload(mob_water_report); mob_water_report.run()"),
 		LOCTEXT("ReportDone", "MobWater: cost reported. See the Output Log."));
+}
+
+void FMobWaterEditorModule::BakeSpectrum()
+{
+	RunPython(
+		TEXT("import importlib, mob_water_spectrum; ")
+		TEXT("importlib.reload(mob_water_spectrum); mob_water_spectrum.run()"),
+		LOCTEXT("BakeSpectrumDone", "MobWater: sea state baked. See the Output Log."));
 }
 
 void FMobWaterEditorModule::VerifyContract()

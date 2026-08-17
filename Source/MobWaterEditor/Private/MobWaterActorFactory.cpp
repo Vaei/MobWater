@@ -8,6 +8,7 @@
 #include "MobWaterLookPreset.h"
 #include "MobWaterOceanActor.h"
 #include "MobWaterSplineComponent.h"
+#include "MobWaterSpectrum.h"
 #include "MobWaterWavePreset.h"
 #include "MobWaterPoolActor.h"
 
@@ -158,6 +159,14 @@ void UMobWaterOceanFactory::PostSpawnActor(UObject* Asset, AActor* NewActor)
 			nullptr, TEXT("/MobWater/Waves/WP_MobWater_Ocean")))
 		{
 			Water->WavePreset = Waves;
+		}
+
+		// The baked sea, which is what makes an ocean read as one rather than as a large pond. Absent
+		// until someone runs the bake, and the preset above still moves the surface without it.
+		if (UMobWaterSpectrum* Sea = LoadObject<UMobWaterSpectrum>(
+			nullptr, TEXT("/MobWater/Spectra/SP_MobWater_Ocean")))
+		{
+			Water->Spectrum = Sea;
 		}
 
 		Water->ApplySurface();

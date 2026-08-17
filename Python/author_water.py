@@ -27,6 +27,7 @@ import unreal
 import author_ripples
 import mob_water_version
 import mob_water_graph as g
+import mob_water_spectrum
 import mob_water_textures
 
 COLLECTION_NAME = 'MPC_MobWater'
@@ -68,6 +69,11 @@ COLLECTION_VECTORS = COLLECTION_VECTORS + (
     + [('SunDirection', (0.0, 0.0, -1.0, 0.0)), ('SunColor', (1.0, 0.95, 0.85, 1.0))]
     # (Intensity, Rotation in turns, unused, unused). The sky the water reflects.
     + [('ReflectionParams', (1.0, 0.0, 0.0, 0.0))]
+    # How the baked sea state is laid out: (TileSize, LoopPeriod, Resolution, Frames) and
+    # (HorizontalScale, VerticalScale, NormalScale, AtlasColumns). Written by the subsystem when an
+    # ocean says which spectrum it is on. The scales default to zero, so a level with no ocean in it
+    # publishes nothing and the atlas contributes no displacement rather than a full swing of one.
+    + [('SpectrumParams', (1024.0, 1.0, 4.0, 2.0)), ('SpectrumScale', (0.0, 0.0, 0.0, 1.0))]
 )
 
 
@@ -191,7 +197,8 @@ def build_gradients():
 
 MASTER_NAME = 'M_MobWater'
 
-INCLUDES = ['/MobWater/Public/MobWaterSurface.ush', '/MobWater/Public/MobWaterField.ush']
+INCLUDES = ['/MobWater/Public/MobWaterSurface.ush', '/MobWater/Public/MobWaterField.ush',
+            '/MobWater/Public/MobWaterSpectrum.ush']
 
 RIPPLE_FIELD_SIZE = 256
 
@@ -274,6 +281,34 @@ MobWaterEvaluate(
 WaveNormal = Nrm;
 WaveFold = Fold;
 return Disp;
+"""
+
+# Where in the baked atlas this vertex is, at the two frames the loop is between.
+#
+# Both frames share a column, so what this really returns is one column and two rows. It is computed
+# in the vertex shader for the displacement and again in the pixel shader for the normal, because the
+# ocean's mesh reaches the horizon and a normal carried across one of its triangles is a normal for
+# something the size of a house.
+_CODE_SPECTRUM_UV = """
+float Blend = 0.0f;
+float4 UV = MobWaterSpectrumUV(WorldXY, Time, Params, Scale.w, Blend);
+SpectrumBlend = Blend;
+return UV;
+"""
+
+_CODE_SPECTRUM_DISPLACEMENT = """
+float Fold = 0.0f;
+float3 Out = MobWaterSpectrumDisplacement(S0, S1, Blend, float3(Scale.x, Scale.x, Scale.y), Fold);
+SpectrumFold = Fold;
+return Out;
+"""
+
+_CODE_SPECTRUM_NORMAL = """
+return MobWaterSpectrumNormal(N0, N1, Blend, Scale.z);
+"""
+
+_CODE_SPECTRUM_COMBINE_NORMAL = """
+return MobWaterBlendNormals(WaveNormal, SpectrumNormal);
 """
 
 # Two nodes rather than one with a branch, because a Custom node's body is emitted whether or not
@@ -473,6 +508,123 @@ def _wave_node(mat, collection, sample_xy, time, x, y):
     return node
 
 
+SPECTRUM_ROOT = mob_water_spectrum.SPECTRUM_ROOT
+
+
+def _atlas_tap(mat, obj, coords, x, y):
+    """One read of a frame atlas, at mip zero and nothing else.
+
+    The explicit level is what makes the layout safe, and it is not an optimisation. The frames sit
+    side by side, so any filter that widens its footprint reads the neighbouring frame - and the
+    shared wrap sampler is anisotropic, which on a surface seen at a grazing angle is exactly that.
+    It presents as the sea flattening towards the horizon rather than as a filtering choice, because
+    what an average of several frames of a travelling wave comes to is nothing.
+
+    Asking for a level rather than a derivative also settles the vertex shader's own question. There
+    are no derivatives there, and a sample with no level named is a sample the compiler has to invent
+    one for.
+    """
+    tap = g.expr(mat, unreal.MaterialExpressionTextureSample, x, y)
+    tap.set_editor_property('sampler_type', unreal.MaterialSamplerType.SAMPLERTYPE_LINEAR_COLOR)
+    tap.set_editor_property('sampler_source', unreal.SamplerSourceMode.SSM_WRAP_WORLD_GROUP_SETTINGS)
+    tap.set_editor_property('mip_value_mode', unreal.TextureMipValueMode.TMVM_MIP_LEVEL)
+
+    g.link(coords, '', tap, 'UVs')
+    g.link(obj, '', tap, 'Tex')
+    g.link(g.const(mat, 0.0, x, y + 1), '', tap, 'Level')
+
+    return _rgba(mat, tap, x + 1, y)
+
+
+def _rgba(mat, tap, x, y):
+    """A texture sample as a genuine float4.
+
+    A TextureSample's unnamed output is RGB, and it has no float4 output that can be connected by
+    name. Handing that to a Custom node whose parameter is a float4 fails inside the generated
+    material with "cannot implicitly convert from float3 to float4", pointing at a line of HLSL
+    nobody wrote - so the alpha is appended back on here rather than discovered there.
+    """
+    appended = g.expr(mat, unreal.MaterialExpressionAppendVector, x, y)
+    g.link(tap, '', appended, 'A')
+    g.link(tap, 'A', appended, 'B')
+    return appended
+
+
+def _spectrum_nodes(mat, collection, sample_xy, time, x, y):
+    """The baked sea state, read.
+
+    Returns (displacement, fold, normal). Four taps: two frames of displacement in the vertex shader
+    and two of normal in the pixel one. Every one of them is Shared:Wrap, so the whole thing costs no
+    sampler at all - what it costs is four texture reads and the arithmetic to place them.
+    """
+    params = g.collection_param(mat, collection, 'SpectrumParams', x - 2, y)
+    scale = g.collection_param(mat, collection, 'SpectrumScale', x - 2, y + 1)
+
+    uv = g.custom(mat, _CODE_SPECTRUM_UV, g.CMOT.CMOT_FLOAT4,
+                  ['WorldXY', 'Time', 'Params', 'Scale'],
+                  [('SpectrumBlend', g.CMOT.CMOT_FLOAT1)], x, y,
+                  'Where in the atlas this point is, at the two frames the loop is between.',
+                  includes=INCLUDES)
+    g.link(sample_xy, '', uv, 'WorldXY')
+    g.link(time, '', uv, 'Time')
+    g.link(params, '', uv, 'Params')
+    g.link(scale, '', uv, 'Scale')
+
+    def frame_uv(component_b, offset):
+        mask = g.expr(mat, unreal.MaterialExpressionComponentMask, x + 1, y + offset)
+        mask.set_editor_property('r', not component_b)
+        mask.set_editor_property('g', not component_b)
+        mask.set_editor_property('b', component_b)
+        mask.set_editor_property('a', component_b)
+        g.link(uv, '', mask, '')
+        return mask
+
+    uv0 = frame_uv(False, 0)
+    uv1 = frame_uv(True, 1)
+
+    def atlas(name, texture, description, at_y):
+        # A texture object read by two samples rather than two sampler parameters of the same name.
+        # One parameter means an instance pointing at a project's own bake cannot leave one of the
+        # two frames addressing the atlas it replaced.
+        obj = g.expr(mat, unreal.MaterialExpressionTextureObjectParameter, x + 1, at_y)
+        obj.set_editor_property('parameter_name', name)
+        obj.set_editor_property('texture', texture)
+        obj.set_editor_property('sampler_type', unreal.MaterialSamplerType.SAMPLERTYPE_LINEAR_COLOR)
+        obj.set_editor_property('group', 'Waves')
+        obj.set_editor_property('desc', description)
+
+        return [_atlas_tap(mat, obj, coords, x + 2, at_y + index * 2)
+                for index, coords in enumerate((uv0, uv1))]
+
+    displacement_taps = atlas('SpectrumDisplacement', g.existing(SPECTRUM_ROOT + '/T_MobWaterSpectrum'),
+                              'Where the baked sea moves a point, and how hard it is folding there. '
+                              'Point an instance at a bake of your own to change the sea.', y + 3)
+
+    normal_taps = atlas('SpectrumNormal', g.existing(SPECTRUM_ROOT + '/T_MobWaterSpectrumNormal'),
+                        "The baked sea's own slope. Read per pixel, because an ocean's triangles "
+                        'are the size of houses.', y + 6)
+
+    displacement = g.custom(mat, _CODE_SPECTRUM_DISPLACEMENT, g.CMOT.CMOT_FLOAT3,
+                            ['S0', 'S1', 'Blend', 'Scale'],
+                            [('SpectrumFold', g.CMOT.CMOT_FLOAT1)], x + 3, y + 3,
+                            'The baked displacement, blended across the two frames and decoded.',
+                            includes=INCLUDES)
+    g.link(displacement_taps[0], '', displacement, 'S0')
+    g.link(displacement_taps[1], '', displacement, 'S1')
+    g.link(uv, 'SpectrumBlend', displacement, 'Blend')
+    g.link(scale, '', displacement, 'Scale')
+
+    normal = g.custom(mat, _CODE_SPECTRUM_NORMAL, g.CMOT.CMOT_FLOAT3,
+                      ['N0', 'N1', 'Blend', 'Scale'], [], x + 3, y + 6,
+                      'The baked slope, blended and rebuilt into a normal.', includes=INCLUDES)
+    g.link(normal_taps[0], '', normal, 'N0')
+    g.link(normal_taps[1], '', normal, 'N1')
+    g.link(uv, 'SpectrumBlend', normal, 'Blend')
+    g.link(scale, '', normal, 'Scale')
+
+    return displacement, normal
+
+
 def build_master_material():
     """M_MobWater: the surface, as one translucent material reading the depth buffer."""
     collection = g.existing(g.MAT_ROOT + '/' + COLLECTION_NAME)
@@ -520,6 +672,18 @@ def build_master_material():
     time_param = g.collection_param(mat, collection, 'Time', -5, 2)
 
     waves = _wave_node(mat, collection, sample_xy, time_param, -3, 0)
+
+    # --- and the sea that was solved offline --------------------------------
+    #
+    # Added to the Gerstner set rather than replacing it, so an ocean whose spectrum has not been
+    # baked yet still has waves instead of turning to glass, and a level can put a long authored
+    # swell under a baked chop.
+    spectrum_disp, spectrum_normal = _spectrum_nodes(mat, collection, sample_xy, time_param, -3, 18)
+
+    b_spectrum = g.static_bool(mat, 'bSpectrum', False, 'Waves', -2, 17, 13,
+                               'Adds a baked sea state on top of the wave set. Off, the four atlas '
+                               'reads and their addressing leave the shader entirely, which is why '
+                               'only the ocean instances carry it.')
 
     # --- how much of the wave survives this close to the bank ---------------
     uv = g.expr(mat, unreal.MaterialExpressionTextureCoordinate, -5, 24)
@@ -579,7 +743,14 @@ def build_master_material():
                              'Scales this body-s waves on top of the set the world shares.')
 
     wave_scale = g.mul(mat, shore, '', amplitude, '', -1, 30)
-    wpo = g.mul(mat, waves, '', wave_scale, '', 0, 0)
+
+    # The baked sea lies down at a bank on the same terms the authored waves do. An ocean sets no
+    # fade distance so this is one multiply by one for it, and a body that did set one gets a
+    # spectrum that stops at the shore rather than one that runs up the beach.
+    displaced = g.add(mat, waves, '', spectrum_disp, '', -1, 18)
+    displacement = g.static_switch(mat, b_spectrum, displaced, '', waves, '', -1, 20)
+
+    wpo = g.mul(mat, displacement, '', wave_scale, '', 0, 0)
 
     # --- how much water is in front of what is behind it --------------------
     scene_depth = g.expr(mat, unreal.MaterialExpressionSceneDepth, -5, 40)
@@ -680,6 +851,15 @@ def build_master_material():
     # the pixel shader for its normal again is hundreds of instructions to learn what the vertices
     # already worked out.
     wave_normal = g.vertex_interpolator(mat, waves, 'WaveNormal', 1, 6)
+
+    spectrum_lit = g.custom(mat, _CODE_SPECTRUM_COMBINE_NORMAL, g.CMOT.CMOT_FLOAT3,
+                            ['WaveNormal', 'SpectrumNormal'], [], 1, 8,
+                            'The authored waves and the baked sea, tilted together.',
+                            includes=INCLUDES)
+    g.link(wave_normal, '', spectrum_lit, 'WaveNormal')
+    g.link(spectrum_normal, '', spectrum_lit, 'SpectrumNormal')
+
+    wave_normal = g.static_switch(mat, b_spectrum, spectrum_lit, '', wave_normal, '', 1, 9)
 
     flow_vec = g.cpd_vector(mat, 'FlowVelocity', (0.0, 0.0, 0.0, 0.0), CPD_FLOW_VELOCITY,
                             'Surface', -5, 56, 'How fast the surface slides across the ground.')
@@ -846,7 +1026,15 @@ def build_master_material():
     base_color = g.static_switch(mat, b_caustics, caustic_lit, '', base_color, '', 2, 42)
 
     # --- foam ---------------------------------------------------------------
-    fold = g.vertex_interpolator(mat, waves, 'WaveFold', 1, 7)
+    #
+    # Both folds, added and held at one. The baked sea reports where its own transform compressed the
+    # surface, which is where open water actually breaks white - and that is a different place from
+    # where a Gerstner crest is steep, so a sum rather than a maximum.
+    folded = g.saturate_expr(mat, g.add(mat, waves, 'WaveFold', spectrum_disp, 'SpectrumFold', 0, 7),
+                             '', 0, 8)
+    fold_source = g.static_switch(mat, b_spectrum, folded, '', waves, 'WaveFold', 0, 9)
+
+    fold = g.vertex_interpolator(mat, fold_source, '', 1, 7)
 
     shore_foam_depth = g.cpd_scalar(mat, 'ShoreFoamDepth', 60.0, CPD_SHORE_FOAM_DEPTH, 'Foam', -5, 66,
                                     'How far up from the bed foam reaches. 0 is no shoreline foam.')
@@ -1574,16 +1762,20 @@ def build_meshes():
 # Instances
 # ---------------------------------------------------------------------------
 
-# (name, bRadialShore)
+# (name, bRadialShore, bShoreFromVertex, bSpectrum)
 #
-# One per shape, because the shape is a static switch: a rectangle and a disc measure the distance to
-# their own bank differently, and a switch resolved at compile time is a branch that leaves the
-# shader rather than one paid for on every vertex.
-# (name, bRadialShore, bShoreFromVertex)
+# One family per shape, because the shape is a static switch: a rectangle and a disc measure the
+# distance to their own bank differently, and a switch resolved at compile time is a branch that
+# leaves the shader rather than one paid for on every vertex.
+#
+# The ocean is a family of its own rather than the disc's, which is what it used to borrow. It is the
+# only shape that reads a baked sea state, and a spectrum tap on every pond in the level to serve one
+# body that has one is exactly the cost this plugin is arranged around.
 SHAPES = [
-    ('Box', False, False),
-    ('Disc', True, False),
-    ('Spline', False, True),
+    ('Box', False, False, False),
+    ('Disc', True, False, False),
+    ('Spline', False, True, False),
+    ('Ocean', False, False, True),
 ]
 
 # Has to agree with namespace MobWaterVariant in MobWaterTypes.h.
@@ -1600,6 +1792,12 @@ VARIANT_NUM = 32
 # row in the settings that only makes the table harder to read.
 VARIANTS = [v for v in range(VARIANT_NUM)
             if not (v & VARIANT_FOAM_TEXTURE) or (v & VARIANT_FOAM)]
+
+# The foam's own texture is read in the shoreline's frame, and an ocean has no shoreline - the
+# coordinates it would be sampled in are not defined out there. So the ocean carries sixteen
+# combinations rather than twenty four, and a body that asks for one it does not have falls to the
+# same variant without it, which is what the settings' drop order is for.
+OCEAN_VARIANTS = [v for v in VARIANTS if not (v & VARIANT_FOAM_TEXTURE)]
 
 
 def _variant_suffix(variant):
@@ -1621,8 +1819,8 @@ def _variant_suffix(variant):
 def build_material_instances(master):
     built = []
 
-    for shape, radial, from_vertex in SHAPES:
-        for variant in VARIANTS:
+    for shape, radial, from_vertex, spectrum in SHAPES:
+        for variant in (OCEAN_VARIANTS if spectrum else VARIANTS):
             name = 'MI_MobWater_%s%s' % (shape, _variant_suffix(variant))
 
             instance = g.get_or_create_instance(g.MAT_ROOT, name, master)
@@ -1640,6 +1838,8 @@ def build_material_instances(master):
                 instance, 'bFoamTexture', bool(variant & VARIANT_FOAM_TEXTURE))
             g.MEL.set_material_instance_static_switch_parameter_value(
                 instance, 'bGradientColor', bool(variant & VARIANT_GRADIENT))
+            g.MEL.set_material_instance_static_switch_parameter_value(
+                instance, 'bSpectrum', spectrum)
 
             g.MEL.update_material_instance(instance)
             g.save(instance)
@@ -1647,7 +1847,7 @@ def build_material_instances(master):
 
     # One debug instance per shape. Assign it to a body's material slot to see what the surface is
     # actually made of, then put the real one back.
-    for shape, radial, from_vertex in SHAPES:
+    for shape, radial, from_vertex, spectrum in SHAPES:
         name = 'MI_MobWater_%s_Debug' % shape
 
         instance = g.get_or_create_instance(g.MAT_ROOT, name, master)
@@ -1658,6 +1858,7 @@ def build_material_instances(master):
         g.MEL.set_material_instance_static_switch_parameter_value(instance, 'bFoam', True)
         g.MEL.set_material_instance_static_switch_parameter_value(instance, 'bRipples', True)
         g.MEL.set_material_instance_static_switch_parameter_value(instance, 'bCaustics', True)
+        g.MEL.set_material_instance_static_switch_parameter_value(instance, 'bSpectrum', spectrum)
 
         g.MEL.update_material_instance(instance)
         g.save(instance)
@@ -1827,6 +2028,106 @@ def build_parity_probe():
     return mat
 
 
+SPECTRUM_PARITY_NAME = 'M_MobWaterSpectrumParity'
+
+_CODE_SPECTRUM_PARITY = """
+float Blend = 0.0f;
+float4 UV = MobWaterSpectrumUV(SampleXY, Time, Params, Scale.w, Blend);
+
+float Fold = 0.0f;
+float3 Disp = MobWaterSpectrumDisplacement(S0, S1, Blend, float3(Scale.x, Scale.x, Scale.y), Fold);
+
+return Disp / EncodeScale + 0.5f;
+"""
+
+
+def build_spectrum_parity_probe():
+    """A material that reads the baked sea and writes what it read out as pixels.
+
+    The Gerstner probe compares two implementations of one piece of arithmetic and expects them to
+    agree to a part in a million. This one cannot: it compares a hardware bilinear filter against a
+    software one, and a filter's subtexel weights are fixed point on every GPU there is. What it is
+    for is measuring what that costs rather than assuming it, and catching the failures that are not
+    rounding at all - an atlas addressed at the wrong scale, a frame index off by one, a decode that
+    lost its bias, a gutter that is not there.
+
+    Its layout arrives as its own parameters rather than through the collection, for the same reason
+    the wave probe's set does: a probe reading an unpublished collection would agree with a CPU
+    reading an unbaked asset, and the test would pass without having compared anything.
+    """
+    mat = g.get_or_create_material(g.MAT_ROOT, SPECTRUM_PARITY_NAME)
+
+    mat.set_editor_property('material_domain', unreal.MaterialDomain.MD_UI)
+    mat.set_editor_property('blend_mode', unreal.BlendMode.BLEND_OPAQUE)
+
+    uv = g.expr(mat, unreal.MaterialExpressionTextureCoordinate, -6, 0)
+
+    origin = g.vector_param4(mat, 'ProbeOrigin', (0.0, 0.0, 0.0, 0.0), 'Probe', -7, 2)
+
+    origin_xy = g.expr(mat, unreal.MaterialExpressionComponentMask, -5, 2)
+    origin_xy.set_editor_property('r', True)
+    origin_xy.set_editor_property('g', True)
+    origin_xy.set_editor_property('b', False)
+    origin_xy.set_editor_property('a', False)
+    g.link(origin, '', origin_xy, '')
+
+    extent = g.scalar_param(mat, 'ProbeExtent', 4000.0, 'Probe', -5, 4,
+                            'How much world the probe covers, corner to corner.')
+
+    sample_xy = g.custom(mat, _CODE_PARITY_UV, g.CMOT.CMOT_FLOAT2, ['UV', 'Origin', 'Extent'], [],
+                         -4, 1, 'Where in the world each texel stands for.', includes=INCLUDES)
+    g.link(uv, '', sample_xy, 'UV')
+    g.link(origin_xy, '', sample_xy, 'Origin')
+    g.link(extent, '', sample_xy, 'Extent')
+
+    params = g.vector_param4(mat, 'SpectrumParams', (1024.0, 1.0, 4.0, 2.0), 'Probe', -7, 6)
+    scale = g.vector_param4(mat, 'SpectrumScale', (0.0, 0.0, 0.0, 1.0), 'Probe', -7, 8)
+    time = g.scalar_param(mat, 'Time', 0.0, 'Probe', -5, 6, 'The instant to evaluate at.')
+    encode = g.scalar_param(mat, 'EncodeScale', PARITY_ENCODE_SCALE, 'Probe', -5, 8, '')
+
+    coords = g.custom(mat, _CODE_SPECTRUM_UV, g.CMOT.CMOT_FLOAT4,
+                      ['WorldXY', 'Time', 'Params', 'Scale'],
+                      [('SpectrumBlend', g.CMOT.CMOT_FLOAT1)], -3, 4,
+                      'Where in the atlas each texel is.', includes=INCLUDES)
+    g.link(sample_xy, '', coords, 'WorldXY')
+    g.link(time, '', coords, 'Time')
+    g.link(params, '', coords, 'Params')
+    g.link(scale, '', coords, 'Scale')
+
+    atlas = g.expr(mat, unreal.MaterialExpressionTextureObjectParameter, -3, 8)
+    atlas.set_editor_property('parameter_name', 'SpectrumDisplacement')
+    atlas.set_editor_property('texture', g.existing(SPECTRUM_ROOT + '/T_MobWaterSpectrum'))
+    atlas.set_editor_property('sampler_type', unreal.MaterialSamplerType.SAMPLERTYPE_LINEAR_COLOR)
+    atlas.set_editor_property('group', 'Probe')
+
+    taps = []
+    for index in range(2):
+        mask = g.expr(mat, unreal.MaterialExpressionComponentMask, -2, 4 + index)
+        mask.set_editor_property('r', index == 0)
+        mask.set_editor_property('g', index == 0)
+        mask.set_editor_property('b', index == 1)
+        mask.set_editor_property('a', index == 1)
+        g.link(coords, '', mask, '')
+
+        taps.append(_atlas_tap(mat, atlas, mask, -1, 4 + index * 2))
+
+    node = g.custom(mat, _CODE_SPECTRUM_PARITY, g.CMOT.CMOT_FLOAT3,
+                    ['SampleXY', 'Time', 'Params', 'Scale', 'S0', 'S1', 'EncodeScale'], [],
+                    0, 6, 'The baked sea, as the GPU reads it.', includes=INCLUDES)
+
+    for name, src in zip(['SampleXY', 'Time', 'Params', 'Scale', 'S0', 'S1', 'EncodeScale'],
+                         [sample_xy, time, params, scale, taps[0], taps[1], encode]):
+        g.link(src, '', node, name)
+
+    g.link_property(mat, node, '', g.MP.MP_EMISSIVE_COLOR)
+
+    g.spread(g.MEL.get_material_expressions(mat))
+    g.MEL.recompile_material(mat)
+    g.save(mat)
+
+    return mat
+
+
 def build_all():
     # Reloaded here rather than left to the caller: mob_water_graph holds the reference, so a stamp
     # edited during a session would otherwise keep writing the version it was imported with.
@@ -1862,6 +2163,14 @@ def build_all():
     for row in build_gradients():
         g.log('  gradient %s' % row)
 
+    # Before the master, which names the two atlases as parameter defaults. Only when there is not
+    # one already: the transform is minutes of arithmetic and nothing about generating materials
+    # changes the sea. Water > Bake Ocean Spectrum is how a bake is asked for on purpose.
+    importlib.reload(mob_water_spectrum)
+    if g.existing(mob_water_spectrum.SPECTRUM_ROOT + '/' + mob_water_spectrum.ASSET_NAME) is None:
+        g.log('  no baked sea state; solving one')
+        mob_water_spectrum.build()
+
     master = build_master_material()
     g.log('  master %s' % master.get_path_name())
 
@@ -1873,6 +2182,9 @@ def build_all():
 
     probe = build_parity_probe()
     g.log('  probe %s' % probe.get_path_name())
+
+    sea_probe = build_spectrum_parity_probe()
+    g.log('  probe %s' % sea_probe.get_path_name())
 
     # Vertex as well as pixel, because this material's own cost is mostly vertex: the waves are
     # evaluated there, and the pixel count is dominated by what a translucent lit surface costs

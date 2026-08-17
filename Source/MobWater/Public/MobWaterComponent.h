@@ -9,6 +9,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "MobWaterComponent.generated.h"
 
+class UMobWaterSpectrum;
 class UMobWaterWavePreset;
 
 /**
@@ -82,6 +83,22 @@ public:
 	/** Scales this body's waves on top of the set it shares with everything else. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Waves", meta=(ClampMin="0.0"))
 	float WaveAmplitude = 1.f;
+
+	/**
+	 * A sea state solved offline, added on top of the wave preset.
+	 *
+	 * Ocean only, and that is not an arbitrary restriction. A baked field is a tiling continuum with
+	 * no edge in it, so it has nothing to say about a body that has one - a pond graded by a spectrum
+	 * would carry open water right up to its bank and lie down there only because the shore fade made
+	 * it, which is a lake pretending to be the sea rather than a lake.
+	 *
+	 * Added rather than replacing, so an ocean whose spectrum is not assigned yet still has the
+	 * preset's waves instead of turning to glass, and a level can put a long authored swell under a
+	 * baked chop.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Waves",
+		meta=(EditCondition="Shape == EMobWaterShape::Ocean", EditConditionHides))
+	TObjectPtr<UMobWaterSpectrum> Spectrum;
 
 	/**
 	 * The colour comes from a gradient ramp indexed by depth rather than from an absorption between
@@ -443,12 +460,21 @@ protected:
 	/** Which material variant this body's settings ask for, as a mask of MobWaterVariant flags. */
 	int32 WantedVariant() const;
 
-	/** Puts a per-body foam texture on, or takes the material it needed back off again. */
-	void ApplyFoamTexture(UMaterialInterface* Shared);
+	/**
+	 * Puts this body's own textures on, or takes the material they needed back off again.
+	 *
+	 * The one thing on this component that cannot travel as primitive data, so it is the one thing
+	 * that costs a material. A body that sets neither a foam texture nor a spectrum of its own keeps
+	 * batching with every other body.
+	 */
+	void ApplyTextureOverrides(UMaterialInterface* Shared);
 
-	/** Only exists while a body carries a foam texture of its own. */
+	/** Whether the shared material already points at this body's spectrum, so no override is needed. */
+	bool SharesSpectrumTextures(UMaterialInterface* Shared) const;
+
+	/** Only exists while a body carries a texture the shared material does not have. */
 	UPROPERTY(Transient)
-	TObjectPtr<UMaterialInstanceDynamic> FoamMaterial;
+	TObjectPtr<UMaterialInstanceDynamic> OverrideMaterial;
 
 	TWeakObjectPtr<class UMobWaterSplineComponent> ShoreSpline;
 };

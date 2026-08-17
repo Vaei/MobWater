@@ -10,6 +10,7 @@
 #include "MobWaterSubsystem.generated.h"
 
 class UMaterialParameterCollection;
+class UMobWaterSpectrum;
 class UMobWaterWavePreset;
 
 /**
@@ -76,6 +77,20 @@ public:
 
 	/** Writes the wave set and the clock into the collection every water material reads. */
 	void PublishWaves(const FMobWaterWaveParams& Params) const;
+
+	/**
+	 * Tells every ocean material how the baked sea state is laid out.
+	 *
+	 * One at a time for a whole world, because a collection is one set of values and the geometry has
+	 * to reach the vertex shader somehow. Two oceans on two different spectra is not a case this
+	 * supports, and the second one to register says so in the log rather than quietly drawing the
+	 * first one's sea at its own scale.
+	 */
+	void SetSpectrum(const UMobWaterSpectrum* InSpectrum);
+
+	const UMobWaterSpectrum* GetSpectrum() const { return Spectrum.Get(); }
+
+	void PublishSpectrum() const;
 
 	/**
 	 * How bright the reflected sky is, and which way it is turned.
@@ -261,6 +276,14 @@ protected:
 
 	/** Set when the wave set changes, so the seventeen vector writes happen then rather than always. */
 	bool bWavesDirty = true;
+
+	/** The baked sea state this world's oceans are on. */
+	TWeakObjectPtr<const UMobWaterSpectrum> Spectrum;
+
+	bool bSpectrumDirty = true;
+
+	/** Said once. A second ocean on a second sea state is wrong on every frame, not only the first. */
+	bool bWarnedSpectrumConflict = false;
 
 	uint64 TickCount = 0;
 };

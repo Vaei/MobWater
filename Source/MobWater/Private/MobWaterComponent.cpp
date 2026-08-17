@@ -7,6 +7,7 @@
 #include "MobWaterSplineComponent.h"
 #include "MobWaterSplineMesh.h"
 #include "MobWaterSettings.h"
+#include "MobWaterSpectrum.h"
 #include "MobWaterStatics.h"
 #include "MobWaterSubsystem.h"
 #include "MobWaterWavePreset.h"
@@ -189,6 +190,17 @@ void UMobWaterComponent::ApplySurface()
 		}
 	}
 
+	// The material reads the sea state's layout out of the collection, and the collection is the
+	// world's rather than this body's, so the body has to say. Told on every apply rather than on
+	// register, because a level designer changing the spectrum has to see it without a restart.
+	if (Shape == EMobWaterShape::Ocean)
+	{
+		if (UMobWaterSubsystem* Subsystem = UMobWaterSubsystem::Get(this))
+		{
+			Subsystem->SetSpectrum(Spectrum);
+		}
+	}
+
 	if (UMaterialInterface* Material = UMobWaterSettings::GetMaterial(Shape, WantedVariant()))
 	{
 		if (GetMaterial(0) != Material)
@@ -196,7 +208,7 @@ void UMobWaterComponent::ApplySurface()
 			SetMaterial(0, Material);
 		}
 
-		ApplyFoamTexture(Material);
+		ApplyTextureOverrides(Material);
 	}
 
 	// A spline body generates its mesh at world size, and an ocean's is built at world size too -
@@ -270,32 +282,62 @@ void UMobWaterComponent::ApplySurface()
 	WriteWaterData(MobWaterData::CausticDepth, CausticDepth);
 }
 
-void UMobWaterComponent::ApplyFoamTexture(UMaterialInterface* Shared)
+void UMobWaterComponent::ApplyTextureOverrides(UMaterialInterface* Shared)
 {
-	// The one setting on this component that cannot travel as primitive data, so it is the one that
-	// costs a material. The instance is made only when a texture is actually set, and dropped again
-	// when it is cleared, so a body that leaves it alone keeps batching with every other body.
-	const bool bWanted = bFoam && bFoamTexture && FoamTexture != nullptr;
+	const bool bWantsFoam = bFoam && bFoamTexture && FoamTexture != nullptr;
 
-	if (!bWanted)
+	// Only when the spectrum is not the one the shared material already carries. The instances ship
+	// pointing at the atlases the generator baked, so an ocean that uses those needs no material of
+	// its own - and an ocean is the one body a project is most likely to have several of.
+	const bool bWantsSpectrum = Shape == EMobWaterShape::Ocean && Spectrum && Spectrum->IsUsable()
+		&& !SharesSpectrumTextures(Shared);
+
+	if (!bWantsFoam && !bWantsSpectrum)
 	{
-		if (FoamMaterial)
+		if (OverrideMaterial)
 		{
-			FoamMaterial = nullptr;
+			OverrideMaterial = nullptr;
 			SetMaterial(0, Shared);
 		}
 		return;
 	}
 
-	if (!FoamMaterial || FoamMaterial->Parent != Shared)
+	if (!OverrideMaterial || OverrideMaterial->Parent != Shared)
 	{
-		FoamMaterial = CreateDynamicMaterialInstance(0, Shared);
+		OverrideMaterial = CreateDynamicMaterialInstance(0, Shared);
 	}
 
-	if (FoamMaterial)
+	if (!OverrideMaterial)
 	{
-		FoamMaterial->SetTextureParameterValue(TEXT("FoamTexture"), FoamTexture);
+		return;
 	}
+
+	if (bWantsFoam)
+	{
+		OverrideMaterial->SetTextureParameterValue(TEXT("FoamTexture"), FoamTexture);
+	}
+
+	if (bWantsSpectrum)
+	{
+		OverrideMaterial->SetTextureParameterValue(TEXT("SpectrumDisplacement"), Spectrum->DisplacementTexture);
+		OverrideMaterial->SetTextureParameterValue(TEXT("SpectrumNormal"), Spectrum->NormalTexture);
+	}
+}
+
+bool UMobWaterComponent::SharesSpectrumTextures(UMaterialInterface* Shared) const
+{
+	if (!Shared || !Spectrum)
+	{
+		return false;
+	}
+
+	UTexture* Displacement = nullptr;
+	UTexture* Normal = nullptr;
+
+	Shared->GetTextureParameterValue(TEXT("SpectrumDisplacement"), Displacement);
+	Shared->GetTextureParameterValue(TEXT("SpectrumNormal"), Normal);
+
+	return Displacement == Spectrum->DisplacementTexture && Normal == Spectrum->NormalTexture;
 }
 
 void UMobWaterComponent::WriteWaterData(int32 Index, float Value)
@@ -345,11 +387,15 @@ bool UMobWaterComponent::ContainsLocation(const FVector& Location) const
 		return Spline && Spline->GetDistanceInside(Location) > 0.f;
 	}
 
-	const FVector Local = GetComponentTransform().InverseTransformPosition(Location);
+	// Without the scale, so the answer is in world units whatever the mesh is. A box and a disc are
+	// unit meshes stretched to their extent and an ocean's ring is built at world size already, so a
+	// reading that went through the scale would be right for the first two and out by the extent for
+	// the third - which is an ocean that reports every point in the level as being outside it.
+	const FVector Local = GetComponentTransform().InverseTransformPositionNoScale(Location);
 
-	// Against the unscaled extent rather than the component's bounds, because the bounds grow with
-	// whatever the waves are doing and a point would drift in and out of the body as one passed.
-	const FVector2D Offset(Local.X * Extent.X * 2.0, Local.Y * Extent.Y * 2.0);
+	// Against the extent rather than the component's bounds, because the bounds grow with whatever the
+	// waves are doing and a point would drift in and out of the body as one passed.
+	const FVector2D Offset(Local.X, Local.Y);
 
 	if (Shape == EMobWaterShape::Disc)
 	{
@@ -376,8 +422,8 @@ float UMobWaterComponent::GetShoreFade(const FVector& Location) const
 		return FMobWaterWaves::ShoreAttenuation(FMath::Max(Inside, 0.f), ShoreFadeDistance);
 	}
 
-	const FVector Local = GetComponentTransform().InverseTransformPosition(Location);
-	const FVector2D Offset(Local.X * Extent.X * 2.0, Local.Y * Extent.Y * 2.0);
+	const FVector Local = GetComponentTransform().InverseTransformPositionNoScale(Location);
+	const FVector2D Offset(Local.X, Local.Y);
 
 	float EdgeDistance;
 	if (Shape == EMobWaterShape::Disc)
@@ -419,7 +465,8 @@ FMobWaterInfo UMobWaterComponent::GetWaterInfoAtLocation(const FVector& Location
 		static_cast<float>(GetComponentLocation().Z),
 		Depth,
 		GetShoreFade(Location),
-		Subsystem->GetWaterTime());
+		Subsystem->GetWaterTime(),
+		Shape == EMobWaterShape::Ocean ? Spectrum.Get() : nullptr);
 
 	Info.FlowVelocity = GetWorldFlowVelocity();
 

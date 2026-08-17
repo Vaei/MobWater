@@ -18,6 +18,8 @@ __pycache__
 # generated yet. The proxy meshes are neither, being the one thing here nothing generates.
 Content/Materials/
 
-# A baked sea state is author-time output of Python/mob_water_spectrum.py, and one loop is tens of
-# megabytes. A project bakes the states it wants; the repo carries the recipe, not the result.
+# A baked sea state is author-time output of Python/mob_water_spectrum.py, and one loop is six
+# megabytes of uncompressed atlas and query table for six seconds of arithmetic. The bake is seeded,
+# so two machines produce the same bytes. A project bakes the states it wants; the repo carries the
+# recipe, not the result.
 Content/Spectra/

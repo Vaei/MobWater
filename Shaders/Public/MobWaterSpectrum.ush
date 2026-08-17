@@ -1,0 +1,101 @@
+// Copyright (c) Jared Taylor
+
+#pragma once
+
+/*
+ * /MobWater/Public/MobWaterSpectrum.ush
+ *
+ * The baked sea state, as the GPU addresses it.
+ *
+ * This file and Source/MobWater/Public/MobWaterSpectrum.h are one addressing scheme written twice,
+ * and mob_water_verify is what keeps them equal - it renders a probe through this and compares it
+ * against the C++ reading the same bytes.
+ *
+ * The two sides do not agree exactly here, and cannot. The Gerstner tier is arithmetic on both
+ * machines and agrees to a part in a million; this one is a hardware bilinear filter against a
+ * software one, and a filter's subtexel weights are fixed point. Verify Contract measures what is
+ * left rather than assuming it, and the number it prints is the one the docs quote.
+ *
+ * Frames are laid out in a grid on one 2D texture rather than in an array or a volume, because
+ * either of those is a support question on the mobile forward path with no good answer on every
+ * device this has to run on. A grid rather than a strip because ES3.1 only guarantees 2048 texels a
+ * side, and a hundred and twenty frames stacked in a column is four times that.
+ *
+ * Every cell carries a one texel gutter on all four sides holding the opposite edge of its own
+ * frame. That is what pays for the layout: the field wraps, the atlas does not, and with the gutter
+ * there one bilinear tap per frame lands on the right four texels everywhere including the seam.
+ */
+
+#include "/MobWater/Public/MobWaterWaves.ush"
+
+/** Texels of the opposite edge copied around each frame. Matches MobWaterSpectrumConstants::Gutter. */
+#define MOB_WATER_SPECTRUM_GUTTER 1
+
+/**
+ * Where in the atlas a world position is, at the two frames the loop is between.
+ *
+ * Params is (TileSize, LoopPeriod, Resolution, Frames). Columns is how many frames are across the
+ * atlas, which with the frame count is the whole layout.
+ *
+ * Returns xy for the earlier frame and zw for the later one.
+ */
+float4 MobWaterSpectrumUV(float2 WorldXY, float Time, float4 Params, float Columns, out float Blend)
+{
+	const float TileSize = max(Params.x, 1.0f);
+	const float LoopPeriod = max(Params.y, 0.0001f);
+	const float N = max(Params.z, 1.0f);
+	const float F = max(Params.w, 1.0f);
+
+	const float Across = max(Columns, 1.0f);
+	const float Cell = N + 2.0f * MOB_WATER_SPECTRUM_GUTTER;
+	const float2 Atlas = float2(Across * Cell, ceil(F / Across) * Cell);
+
+	// Half a texel, because a texel's value belongs at its centre and not at its corner.
+	const float2 Inside = float2(
+		MobWaterRepeat(WorldXY.x / TileSize, 1.0f) * N,
+		MobWaterRepeat(WorldXY.y / TileSize, 1.0f) * N) + MOB_WATER_SPECTRUM_GUTTER + 0.5f;
+
+	const float Ticks = MobWaterRepeat(Time, LoopPeriod) / LoopPeriod * F;
+	const float Whole = floor(Ticks);
+	Blend = Ticks - Whole;
+
+	const float Frame0 = MobWaterRepeat(Whole, F);
+	const float Frame1 = MobWaterRepeat(Whole + 1.0f, F);
+
+	const float2 Cell0 = float2(MobWaterRepeat(Frame0, Across), floor(Frame0 / Across));
+	const float2 Cell1 = float2(MobWaterRepeat(Frame1, Across), floor(Frame1 / Across));
+
+	const float2 UV0 = (Cell0 * Cell + Inside) / Atlas;
+	const float2 UV1 = (Cell1 * Cell + Inside) / Atlas;
+
+	return float4(UV0, UV1);
+}
+
+/**
+ * Two reads of the displacement atlas, blended and decoded.
+ *
+ * Scale is (HorizontalScale, HorizontalScale, VerticalScale). Blended before it is decoded, which is
+ * the same answer either way and is the order the query takes.
+ */
+float3 MobWaterSpectrumDisplacement(float4 Sample0, float4 Sample1, float Blend, float3 Scale, out float Fold)
+{
+	const float4 Blended = lerp(Sample0, Sample1, Blend);
+
+	Fold = Blended.w;
+
+	return (Blended.xyz * 2.0f - 1.0f) * Scale;
+}
+
+/**
+ * Two reads of the normal atlas, blended and decoded.
+ *
+ * Only the slope is stored. An ocean's surface never faces away from the sky, so the vertical
+ * component is recoverable, and the byte it would have taken is worth more spent on the two that
+ * carry the tilt.
+ */
+float3 MobWaterSpectrumNormal(float4 Sample0, float4 Sample1, float Blend, float NormalScale)
+{
+	const float2 Slope = (lerp(Sample0.xy, Sample1.xy, Blend) * 2.0f - 1.0f) * NormalScale;
+
+	return normalize(float3(Slope, 1.0f));
+}

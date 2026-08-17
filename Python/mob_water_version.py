@@ -47,6 +47,7 @@ GENERATOR_SOURCES = (
     'author_ripples.py',
     'mob_water_graph.py',
     'mob_water_textures.py',
+    'mob_water_spectrum.py',
 )
 
 # Assets a generate must have produced. Anything else under the content root is checked if it
@@ -55,11 +56,13 @@ REQUIRED = (
     '/MobWater/Materials/M_MobWater',
     '/MobWater/Materials/M_MobWaterUnderwater',
     '/MobWater/Materials/M_MobWaterParity',
+    '/MobWater/Materials/M_MobWaterSpectrumParity',
     '/MobWater/Materials/M_MobWaterRippleStep',
     '/MobWater/Materials/M_MobWaterRippleCopy',
     '/MobWater/Materials/M_MobWaterRippleStamp',
     '/MobWater/Materials/MPC_MobWater',
     '/MobWater/Gradients/GA_MobWater',
+    '/MobWater/Spectra/SP_MobWater_Ocean',
 )
 
 

@@ -30,6 +30,11 @@ TEX_ROOT = '/MobWater/Textures'
 # would not appear in a count that only looked where the tiling ones live.
 GRAD_ROOT = '/MobWater/Gradients'
 
+# The baked sea state is two uncompressed atlases and a table, and it is the largest single thing this
+# plugin can add to a project. A cost report that did not count it would be quoting the wrong number
+# by a factor of two.
+SPECTRUM_ROOT = '/MobWater/Spectra'
+
 MASTERS = [
     'M_MobWater',
     'M_MobWaterUnderwater',
@@ -111,7 +116,7 @@ def texture_memory():
 
     total = 0
 
-    for path in _assets_in(TEX_ROOT) + _assets_in(GRAD_ROOT):
+    for path in _assets_in(TEX_ROOT) + _assets_in(GRAD_ROOT) + _assets_in(SPECTRUM_ROOT):
         texture = unreal.load_asset(path)
         if texture is None:
             continue
@@ -129,6 +134,15 @@ def texture_memory():
 
             _log('  {0}: {1}x{2} render target, {3:.2f} MB'.format(
                 name, size_x, size_y, bytes_used / (1024.0 * 1024.0)))
+            continue
+
+        if isinstance(texture, unreal.MobWaterSpectrum):
+            # Not a texture, and it carries the same bytes again for the query to read. Counted here
+            # because it is memory a level pays for and it lives in the same folder.
+            table = texture.get_table_bytes()
+            total += table
+
+            _log('  {0}: {1:.2f} MB of query table'.format(name, table / (1024.0 * 1024.0)))
             continue
 
         if isinstance(texture, unreal.Texture2D):
