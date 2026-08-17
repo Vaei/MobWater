@@ -238,6 +238,18 @@ def _foam_rows():
 
 def _import(filename, asset_name, compression):
     task = unreal.AssetImportTask()
+
+    # The factory is named rather than left to the file extension, and that is the whole point of
+    # this line: UAssetToolsImpl only routes an import through Interchange when no factory was given.
+    #
+    # Interchange's import runs on worker threads and waits for them from the thread that asked, and
+    # one of those workers calls FApp::GetCurrentTime, whose IsInGameThread ensure prints a script
+    # callstack - which needs a lock the waiting game thread is holding. The editor stops there, with
+    # no assert and no dialog, on the first texture of a generate. It survives a commandlet because
+    # nothing is holding that lock there, so this looks like a fault in the content rather than in
+    # how it was asked for.
+    task.set_editor_property('factory', unreal.TextureFactory())
+
     task.set_editor_property('filename', filename)
     task.set_editor_property('destination_path', TEX_ROOT)
     task.set_editor_property('destination_name', asset_name)

@@ -154,6 +154,7 @@ Run headlessly, the version check reports six assets missing that plainly exist.
 <tbody>
 <tr><td><b>Custom primitive data past index 35 is silently discarded</b></td><td>not an error, a no-op. Three parameters were added, wrote past the end, and read as zero for weeks while every setting looked correct in the details panel</td></tr>
 <tr><td><b><code>does_asset_exist</code> lies in a commandlet</b></td><td>it reads the asset registry, and a registry that has not scanned answers no for assets that are plainly there. The create call then fails, because it cannot prompt about overwriting with nobody watching. Load the asset instead of asking about it</td></tr>
+<tr><td><b>An import that names no factory goes through Interchange, and Interchange deadlocks a generate</b></td><td>Interchange runs the import on worker threads and waits for them from the thread that asked. One worker calls <code>FApp::GetCurrentTime</code>, whose <code>IsInGameThread</code> ensure prints a script callstack, which needs a lock the waiting game thread holds. The editor stops on the first texture, with no assert and no dialog. A commandlet survives it, so it reads as broken content rather than a broken call. Naming <code>TextureFactory</code> on the task is the whole fix: <code>UAssetToolsImpl</code> only routes through Interchange when no factory was given</td></tr>
 <tr><td><b><code>delete_all_material_expressions_in_function</code> leaves nodes behind</b></td><td>so re-running a builder accumulates duplicate function inputs, and the caller's connections land on whichever copy the name lookup hits first. Loop until the graph is actually empty</td></tr>
 <tr><td><b>A Custom node cannot use a shared sampler</b></td><td>and the sixteen sampler budget is what binds on this renderer. Every tap therefore happens in a <code>TextureSample</code> node set to <code>Shared:Wrap</code>, and the maths takes already-sampled values</td></tr>
 <tr><td><b>A Custom node emits its whole body regardless of what reads it</b></td><td>so an unused branch is not free. Gate with static bool function inputs, not with an <code>if</code> on a value</td></tr>
@@ -176,7 +177,6 @@ Run headlessly, the version check reports six assets missing that plainly exist.
 <tr><td><b>Mesh exclusion</b></td><td>behaves as its bounding rectangle, and says so once</td></tr>
 <tr><td><b>Buoyancy</b></td><td>the query is shaped for it; the component is not written</td></tr>
 <tr><td><b>Waterfalls</b></td><td>a vertical sheet has no plan view, no shore distance and nowhere for the field to reach, so it is its own component and its own master rather than a fifth shape</td></tr>
-<tr><td><b>The gradient fork</b></td><td><code>MobWaterGradientCoord</code> is written and not wired up</td></tr>
 <tr><td><b>Per-shape icons</b></td><td><code>Resources/Icon*.png</code> is still MobLights' art</td></tr>
 </tbody>
 </table></div>
