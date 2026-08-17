@@ -6,6 +6,7 @@
 #include "MobWaterInfo.h"
 #include "MobWaterModule.h"
 #include "MobWaterPoolActor.h"
+#include "MobWaterStatics.h"
 #include "MobWaterSubsystem.h"
 #include "MobWaterWavePreset.h"
 #include "Engine/World.h"
@@ -227,13 +228,14 @@ void FMobWaterDeterminism::Record(UMobWaterSubsystem& Subsystem)
 	FString Row = FString::Printf(TEXT("%d,%.17g,%.17g"),
 		Frame - 1, Subsystem.GetRawWaterTime(), Subsystem.GetWaterTime());
 
-	const UMobWaterComponent* Water = Body.IsValid() ? Body->GetWaterComponent() : nullptr;
-
 	for (const FVector2D& Point : GetPoints())
 	{
-		const FMobWaterInfo Info = Water
-			? Water->GetWaterInfoAtLocation(FVector(Point.X, Point.Y, 0.0))
-			: FMobWaterInfo();
+		// Through the public entry point rather than straight at the body, so what is compared is the
+		// path a project actually takes - the body lookup included. It is also what puts these queries
+		// on the Rewind Debugger's track, so a recording of a harness run has the same shape as a
+		// recording of a real one.
+		FMobWaterInfo Info;
+		UMobWaterStatics::GetWaterInfoAtLocation(Body.Get(), FVector(Point.X, Point.Y, 0.0), Info);
 
 		// Not guarded on bValid. A point that has stopped answering is exactly the divergence worth
 		// catching, and skipping it would leave the two files the same length and the same values

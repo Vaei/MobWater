@@ -170,6 +170,9 @@ protected:
 
 	void TickClock(float DeltaTime);
 
+	/** Records the clock, the wave set and where every body is, for the Rewind Debugger's track. */
+	void TraceState() const;
+
 	/**
 	 * Keeps the surface's glint pointed at whatever the level lights it with.
 	 *

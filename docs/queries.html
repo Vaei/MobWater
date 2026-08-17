@@ -75,6 +75,37 @@ The compounding case is the one that needs it. A character standing on a ship de
 
 <p>That is asserted rather than argued. A dedicated server and two clients each record the surface at eight fixed points every frame and the files are compared row by row - <a href="waves.html#determinism">three machines, asserted</a>.</p>
 
+<h2 id="rewind">When two machines do disagree</h2>
+
+<p>A client and a server can only disagree about this water in three places, because the surface is a pure function: <b>the clock</b>, <b>the wave set that was published</b>, or <b>a body's own transform</b>. That is a few scalars a frame, which is what makes a scrubbable timeline worth building rather than a stack of logs.</p>
+
+<p>Record with the <code>MobWater</code> trace channel on, open the recording in the <b>Rewind Debugger</b>, and the world carries a <b>Water</b> track with those three on it. Two recordings scrubbed together part on the frame the lines do.</p>
+
+<pre><code>UnrealEditor.exe MyProject -game -trace=default,MobWater</code></pre>
+
+<div class="tw"><table class="free">
+<tbody>
+<tr><td><b>Water Time</b></td><td>the folded clock, which is a sawtooth. A step in it that is not the fold is a clock correction, and a clock correction is a step in every wave at once</td></tr>
+<tr><td><b>Raw Time</b></td><td>what the time source said before folding, so a clock that is drifting can be told from one that is jumping</td></tr>
+<tr><td><b>Wave Set</b></td><td>a hash rather than the waves. Nobody wants to know what it is; what is worth seeing is the frame it steps, because the two machines were running different waves from there on</td></tr>
+<tr><td><b>Bodies</b></td><td>how many were registered. A body that streamed in late on one machine is a hole in the water on the other</td></tr>
+</tbody>
+</table></div>
+
+<h3>Queries are recorded too, and that is the point</h3>
+
+<p>Set <code>mob.Water.TraceQueries 1</code> and every object that asked gets a <b>Water Queries</b> track of its own: what it was told, and <b>where it asked</b>.</p>
+
+<div class="important">
+Most of the time a ship that desyncs has not found different water. The two machines <i>asked about different places</i>, because the ship itself was somewhere different. Those are unrelated bugs - one is this plugin's clock, the other is the ship's own replication and has nothing to do with water - and a recording of the answers alone cannot tell them apart. The compounding case is the one that needs it: a character standing on a ship derives its query point from the ship's transform, so a small error in the hull becomes a large one at the feet and presents as the water being wrong in one spot.
+</div>
+
+<div class="warn">
+<b>Only the analytic surface is on the track.</b> Ripples, wakes and stamped foam live in a render target a dedicated server does not have, so they are not synchronised by construction and never will be. Nothing about them is recorded, deliberately: a line for them beside the shared values would send someone hunting a desync in a system that was never in sync.
+</div>
+
+<p>Queries are behind their own switch as well as the channel, because a pontoon array is several a frame per actor and recording them unconditionally costs more than the buoyancy does.</p>
+
 <h2 id="what-it-does-not-know">What it does not know</h2>
 
 <div class="warn">

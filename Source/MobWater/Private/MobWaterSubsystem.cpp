@@ -9,6 +9,7 @@
 #include "MobWaterModule.h"
 #include "MobWaterSettings.h"
 #include "MobWaterSpectrum.h"
+#include "MobWaterTrace.h"
 #include "MobWaterUnderwaterComponent.h"
 #include "MobWaterWavePreset.h"
 #include "Camera/PlayerCameraManager.h"
@@ -234,11 +235,37 @@ void UMobWaterSubsystem::Tick(float DeltaTime)
 		bWavesDirty = false;
 	}
 
+	TraceState();
+
 	TickSun();
 	PublishExclusions();
 	TickRipples(DeltaTime);
 	TickMeshExclusions();
 	TickUnderwater();
+}
+
+void UMobWaterSubsystem::TraceState() const
+{
+	if (!FMobWaterTrace::IsEnabled())
+	{
+		return;
+	}
+
+	const UWorld* World = GetWorld();
+
+	FMobWaterTrace::State(*this, World ? static_cast<int32>(World->GetNetMode()) : 0, Bodies.Num());
+
+	// Every body every frame, and they are few. A body's transform is one of the only three things
+	// two machines can disagree about here, and it is the one that is somebody else's bug - a ship
+	// that replicated late moves the water it carries, and a track that recorded the clock and the
+	// waves but not this would send someone looking for the fault in the wrong plugin.
+	for (const TWeakObjectPtr<UMobWaterComponent>& Entry : Bodies)
+	{
+		if (const UMobWaterComponent* Water = Entry.Get())
+		{
+			FMobWaterTrace::Body(*Water);
+		}
+	}
 }
 
 void UMobWaterSubsystem::TickUnderwater()

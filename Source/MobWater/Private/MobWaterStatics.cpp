@@ -5,6 +5,7 @@
 #include "MobWaterComponent.h"
 #include "MobWaterSpectrum.h"
 #include "MobWaterSubsystem.h"
+#include "MobWaterTrace.h"
 #include "MobWaterWavePreset.h"
 
 float UMobWaterStatics::GetWaterTime(const UObject* WorldContextObject)
@@ -24,13 +25,14 @@ bool UMobWaterStatics::GetWaterInfoAtLocation(const UObject* Querier, const FVec
 	}
 
 	const UMobWaterComponent* Body = Subsystem->FindBodyAt(Location);
-	if (!Body)
-	{
-		OutInfo = FMobWaterInfo();
-		return false;
-	}
 
-	OutInfo = Body->GetWaterInfoAtLocation(Location);
+	OutInfo = Body ? Body->GetWaterInfoAtLocation(Location) : FMobWaterInfo();
+
+	// Recorded even when nothing answered, and attributed to whoever asked. A query that used to find
+	// water and now finds none is the same shape of failure as one that finds it in the wrong place,
+	// and a track that only held the answers it got would show the second and lose the first.
+	FMobWaterTrace::Query(Querier, Body, Location, OutInfo);
+
 	return OutInfo.bValid;
 }
 
@@ -72,7 +74,12 @@ void UMobWaterStatics::GetWaterInfoAtLocations(const UObject* Querier,
 			Cached = Subsystem->FindBodyAt(Location);
 		}
 
-		OutInfos.Add(Cached ? Cached->GetWaterInfoAtLocation(Location) : FMobWaterInfo());
+		const FMobWaterInfo& Info = OutInfos.Add_GetRef(
+			Cached ? Cached->GetWaterInfoAtLocation(Location) : FMobWaterInfo());
+
+		// One event each rather than one for the array. A pontoon array desyncing is almost always
+		// one pontoon, and which one it is is the answer.
+		FMobWaterTrace::Query(Querier, Cached, Location, Info);
 	}
 }
 
