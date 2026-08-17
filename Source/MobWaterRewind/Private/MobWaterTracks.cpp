@@ -2,6 +2,7 @@
 
 #include "MobWaterTracks.h"
 
+#include "MobWaterComponent.h"
 #include "MobWaterInsightsProvider.h"
 #include "Common/ProviderLock.h"
 #include "Styling/SlateIconFinder.h"
@@ -22,10 +23,15 @@ namespace
 			FMobWaterInsightsProvider::ProviderName) : nullptr;
 	}
 
-	/** Whether the curve is a query's rather than the world's, which decides which timeline it reads. */
+	/** Which of the three timelines a curve reads. */
 	static bool IsQueryCurve(EMobWaterCurve Curve)
 	{
 		return Curve >= EMobWaterCurve::SurfaceZ;
+	}
+
+	static bool IsBodyCurve(EMobWaterCurve Curve)
+	{
+		return Curve >= EMobWaterCurve::BodyX && Curve <= EMobWaterCurve::BodyYaw;
 	}
 }
 
@@ -43,6 +49,10 @@ FText FMobWaterCurveTrack::GetDisplayNameInternal() const
 	case EMobWaterCurve::RawTime:			return LOCTEXT("RawTime", "Raw Time");
 	case EMobWaterCurve::WaveHash:			return LOCTEXT("WaveHash", "Wave Set");
 	case EMobWaterCurve::BodyCount:			return LOCTEXT("BodyCount", "Bodies");
+	case EMobWaterCurve::BodyX:				return LOCTEXT("BodyX", "X");
+	case EMobWaterCurve::BodyY:				return LOCTEXT("BodyY", "Y");
+	case EMobWaterCurve::BodyZ:				return LOCTEXT("BodyZ", "Surface Height");
+	case EMobWaterCurve::BodyYaw:			return LOCTEXT("BodyYaw", "Yaw");
 	case EMobWaterCurve::SurfaceZ:			return LOCTEXT("SurfaceZ", "Surface Z");
 	case EMobWaterCurve::ImmersionDepth:	return LOCTEXT("ImmersionDepth", "Immersion");
 	case EMobWaterCurve::QueryX:			return LOCTEXT("QueryX", "Asked About X");
@@ -107,6 +117,29 @@ bool FMobWaterCurveTrack::UpdateInternal()
 				case EMobWaterCurve::QueryX:		Value = static_cast<float>(Message.Location.X); break;
 				case EMobWaterCurve::QueryY:		Value = static_cast<float>(Message.Location.Y); break;
 				case EMobWaterCurve::QueryZ:		Value = static_cast<float>(Message.Location.Z); break;
+				default: break;
+				}
+
+				Points.Add({ InStart, Value });
+				return TraceServices::EEventEnumerate::Continue;
+			});
+		});
+	}
+	else if (IsBodyCurve(Curve))
+	{
+		Provider->ReadBodyTimeline(ObjectId, [this, StartTime, EndTime, &Points]
+			(const FMobWaterInsightsProvider::BodyTimeline& Timeline)
+		{
+			Timeline.EnumerateEvents(StartTime, EndTime, [this, &Points]
+				(double InStart, double InEnd, uint32 InDepth, const FMobWaterBodyMessage& Message)
+			{
+				float Value = 0.f;
+				switch (Curve)
+				{
+				case EMobWaterCurve::BodyX:		Value = static_cast<float>(Message.Location.X); break;
+				case EMobWaterCurve::BodyY:		Value = static_cast<float>(Message.Location.Y); break;
+				case EMobWaterCurve::BodyZ:		Value = static_cast<float>(Message.Location.Z); break;
+				case EMobWaterCurve::BodyYaw:	Value = Message.Yaw; break;
 				default: break;
 				}
 
@@ -194,6 +227,38 @@ TConstArrayView<TSharedPtr<RewindDebugger::FRewindDebuggerTrack>> FMobWaterState
 	return Children;
 }
 
+FMobWaterBodyTrack::FMobWaterBodyTrack(uint64 InObjectId)
+	: ObjectId(InObjectId)
+{
+	Icon = FSlateIconFinder::FindIconForClass(UMobWaterComponent::StaticClass());
+
+	Children.Add(MakeShared<FMobWaterCurveTrack>(ObjectId, EMobWaterCurve::BodyZ));
+	Children.Add(MakeShared<FMobWaterCurveTrack>(ObjectId, EMobWaterCurve::BodyX));
+	Children.Add(MakeShared<FMobWaterCurveTrack>(ObjectId, EMobWaterCurve::BodyY));
+	Children.Add(MakeShared<FMobWaterCurveTrack>(ObjectId, EMobWaterCurve::BodyYaw));
+}
+
+FText FMobWaterBodyTrack::GetDisplayNameInternal() const
+{
+	return LOCTEXT("MobWaterBodyTrack", "Water Body");
+}
+
+bool FMobWaterBodyTrack::UpdateInternal()
+{
+	for (const TSharedPtr<FRewindDebuggerTrack>& Child : Children)
+	{
+		Child->Update();
+	}
+
+	return false;
+}
+
+TConstArrayView<TSharedPtr<RewindDebugger::FRewindDebuggerTrack>> FMobWaterBodyTrack::GetChildrenInternal(
+	TArray<TSharedPtr<FRewindDebuggerTrack>>& OutTracks) const
+{
+	return Children;
+}
+
 FMobWaterQueryTrack::FMobWaterQueryTrack(uint64 InObjectId)
 	: ObjectId(InObjectId)
 {
@@ -257,6 +322,40 @@ bool FMobWaterStateTrackCreator::HasDebugInfoInternal(const RewindDebugger::FObj
 	TraceServices::FProviderReadScopeLock ReadScope(*Provider);
 	Provider->ReadStateTimeline(InObjectId.GetMainId(),
 		[&bHasData](const FMobWaterInsightsProvider::StateTimeline&) { bHasData = true; });
+
+	return bHasData;
+}
+
+FName FMobWaterBodyTrackCreator::GetTargetTypeNameInternal() const
+{
+	return UObject::StaticClass()->GetFName();
+}
+
+void FMobWaterBodyTrackCreator::GetTrackTypesInternal(
+	TArray<RewindDebugger::FRewindDebuggerTrackType>& Types) const
+{
+	Types.Add({ "MobWaterBody", LOCTEXT("MobWaterBodyTrackType", "Water Body") });
+}
+
+TSharedPtr<RewindDebugger::FRewindDebuggerTrack> FMobWaterBodyTrackCreator::CreateTrackInternal(
+	const RewindDebugger::FObjectId& InObjectId) const
+{
+	return MakeShared<FMobWaterBodyTrack>(InObjectId.GetMainId());
+}
+
+bool FMobWaterBodyTrackCreator::HasDebugInfoInternal(const RewindDebugger::FObjectId& InObjectId) const
+{
+	const FMobWaterInsightsProvider* Provider = MobWaterProvider();
+	if (!Provider)
+	{
+		return false;
+	}
+
+	bool bHasData = false;
+
+	TraceServices::FProviderReadScopeLock ReadScope(*Provider);
+	Provider->ReadBodyTimeline(InObjectId.GetMainId(),
+		[&bHasData](const FMobWaterInsightsProvider::BodyTimeline&) { bHasData = true; });
 
 	return bHasData;
 }

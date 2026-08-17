@@ -55,7 +55,17 @@ bool FMobWaterInsightsAnalyzer::OnEvent(uint16 RouteId, EStyle Style, const FOnE
 			Message.ExtentY = EventData.GetValue<float>("ExtentY");
 			Message.Shape = EventData.GetValue<uint8>("Shape");
 
-			Provider.AppendBody(EventData.GetValue<uint64>("BodyId"), Time, Message);
+			const uint64 BodyId = EventData.GetValue<uint64>("BodyId");
+			const uint64 OwnerId = EventData.GetValue<uint64>("OwnerId");
+
+			Provider.AppendBody(BodyId, Time, Message);
+
+			// Filed under the owner too. Selecting an ocean in the level selects the actor, and a
+			// timeline held only against the component is one nothing ever asks for.
+			if (OwnerId != 0 && OwnerId != BodyId)
+			{
+				Provider.AppendBody(OwnerId, Time, Message);
+			}
 			break;
 		}
 

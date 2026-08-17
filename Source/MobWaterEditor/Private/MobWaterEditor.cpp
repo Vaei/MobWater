@@ -39,6 +39,9 @@
 #include "UnrealEdGlobals.h"
 #include "Framework/Notifications/NotificationManager.h"
 #include "IPythonScriptPlugin.h"
+#include "IRewindDebugger.h"
+#include "LevelEditor.h"
+#include "ObjectTrace.h"
 #include "Interfaces/IPluginManager.h"
 #include "ISettingsModule.h"
 #include "Materials/MaterialParameterCollection.h"
@@ -55,6 +58,9 @@
 #define LOCTEXT_NAMESPACE "MobWaterEditor"
 
 DEFINE_LOG_CATEGORY(LogMobWaterEditor);
+
+/** The Rewind Debugger's tab, named rather than linked so a project without it only loses a menu entry. */
+static const FName MobWaterRewindTabId(TEXT("RewindDebugger2"));
 
 namespace
 {
@@ -492,6 +498,17 @@ TSharedRef<SWidget> FMobWaterEditorModule::BuildMenu()
 		FUIAction(
 			FExecuteAction::CreateStatic(&FMobWaterEditorModule::SelectOcean),
 			FCanExecuteAction::CreateStatic(&FMobWaterEditorModule::HasOcean)));
+
+	Menu.AddMenuEntry(
+		LOCTEXT("DebugOcean", "Debug Ocean In Rewind Debugger"),
+		LOCTEXT("DebugOceanTip",
+			"Opens the Rewind Debugger on the level's ocean: the clock, the wave set, and where the "
+			"body was, frame by frame. Recording is left alone - what the tracks are for is comparing "
+			"two machines, and a record started from here would throw away whatever was captured."),
+		FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("Icons.Server")),
+		FUIAction(
+			FExecuteAction::CreateStatic(&FMobWaterEditorModule::DebugOceanInRewindDebugger),
+			FCanExecuteAction::CreateStatic(&FMobWaterEditorModule::HasOcean)));
 	Menu.EndSection();
 
 	Menu.BeginSection(TEXT("MobWaterSettings"), LOCTEXT("SettingsSection", "Settings"));
@@ -901,6 +918,54 @@ void FMobWaterEditorModule::SelectOcean()
 		GEditor->SelectActor(Ocean, true, false);
 	}
 	GEditor->NoteSelectionChange();
+}
+
+bool FMobWaterEditorModule::HasRewindDebugger()
+{
+	FLevelEditorModule* LevelEditor = FModuleManager::GetModulePtr<FLevelEditorModule>(TEXT("LevelEditor"));
+	const TSharedPtr<FTabManager> Tabs = LevelEditor ? LevelEditor->GetLevelEditorTabManager() : nullptr;
+
+	return Tabs.IsValid() && Tabs->HasTabSpawner(MobWaterRewindTabId);
+}
+
+void FMobWaterEditorModule::DebugOceanInRewindDebugger()
+{
+	// Selected in the level first. Without a recording there is no traced object to hand the debugger,
+	// and its own picker offers whatever the level has selected - so a selected ocean is one click from
+	// being debugged the moment a recording exists.
+	SelectOcean();
+
+	if (!HasRewindDebugger())
+	{
+		Notify(LOCTEXT("NoRewindDebugger",
+			"MobWater: the Rewind Debugger is not here. Enable the Gameplay Insights plugin."), false);
+		return;
+	}
+
+	FLevelEditorModule& LevelEditor = FModuleManager::LoadModuleChecked<FLevelEditorModule>(TEXT("LevelEditor"));
+	LevelEditor.GetLevelEditorTabManager()->TryInvokeTab(MobWaterRewindTabId);
+
+#if OBJECT_TRACE_ENABLED
+	IRewindDebugger* Debugger = IRewindDebugger::Instance();
+	if (!Debugger || !Debugger->GetAnalysisSession())
+	{
+		return;
+	}
+
+	// The ocean in the world being recorded, which is the play world while one is running. The editor's
+	// own copy is a different object and the recording has never heard of it.
+	UWorld* World = GEditor && GEditor->PlayWorld ? ToRawPtr(GEditor->PlayWorld) : EditorWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	for (TActorIterator<AMobWaterOcean> It(World); It; ++It)
+	{
+		Debugger->SetObjectToDebug(RewindDebugger::FObjectId(FObjectTrace::GetObjectId(*It)));
+		break;
+	}
+#endif
 }
 
 void FMobWaterEditorModule::OpenSelectedBodyMaterial()

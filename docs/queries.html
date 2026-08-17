@@ -79,9 +79,11 @@ The compounding case is the one that needs it. A character standing on a ship de
 
 <p>A client and a server can only disagree about this water in three places, because the surface is a pure function: <b>the clock</b>, <b>the wave set that was published</b>, or <b>a body's own transform</b>. That is a few scalars a frame, which is what makes a scrubbable timeline worth building rather than a stack of logs.</p>
 
-<p>Record with the <code>MobWater</code> trace channel on, open the recording in the <b>Rewind Debugger</b>, and the world carries a <b>Water</b> track with those three on it. Two recordings scrubbed together part on the frame the lines do.</p>
+<p>Record with the <code>MobWater</code> trace channel on, open the recording in the <b>Rewind Debugger</b>, and the world carries a <b>Water</b> track with the first two on it. Two recordings scrubbed together part on the frame the lines do.</p>
 
 <pre><code>UnrealEditor.exe MyProject -game -trace=default,MobWater</code></pre>
+
+<p><b>Water &gt; Debug Ocean In Rewind Debugger</b> opens the panel with the level's ocean already the thing being debugged. It does not start a recording: what the tracks are for is comparing two machines, and a record started from the menu is a recording of one.</p>
 
 <div class="tw"><table class="free">
 <tbody>
@@ -91,6 +93,8 @@ The compounding case is the one that needs it. A character standing on a ship de
 <tr><td><b>Bodies</b></td><td>how many were registered. A body that streamed in late on one machine is a hole in the water on the other</td></tr>
 </tbody>
 </table></div>
+
+<p>The third suspect is on the body rather than the world. Select a body of water - the actor, not the component - and it carries a <b>Water Body</b> track holding its surface height, its position and its yaw. That is the one of the three that is usually somebody else's bug: a ship that replicated late moves the water it carries, and it presents as the surface being wrong under one thing rather than everywhere.</p>
 
 <h3>Queries are recorded too, and that is the point</h3>
 

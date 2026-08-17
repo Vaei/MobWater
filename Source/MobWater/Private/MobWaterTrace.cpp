@@ -41,6 +41,7 @@ UE_TRACE_EVENT_END()
 UE_TRACE_EVENT_BEGIN(MobWater, Body)
 	UE_TRACE_EVENT_FIELD(uint64, Cycle)
 	UE_TRACE_EVENT_FIELD(uint64, BodyId)
+	UE_TRACE_EVENT_FIELD(uint64, OwnerId)
 	UE_TRACE_EVENT_FIELD(double, X)
 	UE_TRACE_EVENT_FIELD(double, Y)
 	UE_TRACE_EVENT_FIELD(double, Z)
@@ -143,9 +144,13 @@ void FMobWaterTrace::Body(const UMobWaterComponent& Water)
 	const FTransform Transform = Water.GetComponentTransform();
 	const FVector Location = Transform.GetLocation();
 
+	// The owner as well as the component, because the Rewind Debugger is driven by what is selected in
+	// the level and what anybody selects is the actor. Keyed to the component alone, an ocean picked in
+	// the viewport finds no track and reads as nothing having been recorded.
 	UE_TRACE_LOG(MobWater, Body, MobWaterChannel)
 		<< Body.Cycle(FPlatformTime::Cycles64())
 		<< Body.BodyId(MobWaterObjectId(&Water))
+		<< Body.OwnerId(MobWaterObjectId(Water.GetOwner()))
 		<< Body.X(Location.X)
 		<< Body.Y(Location.Y)
 		<< Body.Z(Location.Z)

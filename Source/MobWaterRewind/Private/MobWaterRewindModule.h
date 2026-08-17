@@ -26,5 +26,6 @@ private:
 	FMobWaterInsightsTraceModule TraceModule;
 
 	MobWaterRewind::FMobWaterStateTrackCreator StateTrackCreator;
+	MobWaterRewind::FMobWaterBodyTrackCreator BodyTrackCreator;
 	MobWaterRewind::FMobWaterQueryTrackCreator QueryTrackCreator;
 };

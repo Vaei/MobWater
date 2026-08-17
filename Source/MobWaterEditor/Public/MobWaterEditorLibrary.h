@@ -30,4 +30,12 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category="MobWater")
 	static void FinishAssetCompilation();
+
+	/** Whether the Rewind Debugger's tab is here to be opened. Answers what the menu entry would find. */
+	UFUNCTION(BlueprintCallable, Category="MobWater")
+	static bool HasRewindDebugger();
+
+	/** The Water menu's Debug Ocean entry, so a check can run it without a menu to click. */
+	UFUNCTION(BlueprintCallable, Category="MobWater")
+	static void DebugOceanInRewindDebugger();
 };

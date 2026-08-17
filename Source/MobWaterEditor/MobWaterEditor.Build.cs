@@ -41,6 +41,7 @@ public class MobWaterEditor : ModuleRules
 				"MeshDescription",
 				"StaticMeshDescription",
 				"PythonScriptPlugin",
+				"RewindDebuggerInterface",
 				"MobWater",
 			}
 			);

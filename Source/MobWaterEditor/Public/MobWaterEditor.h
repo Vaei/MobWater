@@ -42,6 +42,18 @@ public:
 	/** A toast, so a failure is seen rather than only logged. */
 	static void Notify(const FText& Message, bool bSuccess);
 
+	/**
+	 * Opens the Rewind Debugger with the level's ocean already the thing being debugged.
+	 *
+	 * Recording is left alone deliberately. What the tracks are for is comparing two machines, so a
+	 * record started by whoever opened the panel is a recording of one - and starting one here would
+	 * throw away whatever had already been captured.
+	 */
+	static void DebugOceanInRewindDebugger();
+
+	/** Whether the Rewind Debugger's tab is registered, which is whether the plugin is enabled. */
+	static bool HasRewindDebugger();
+
 private:
 	void RegisterMenus();
 	TSharedRef<SWidget> BuildMenu();

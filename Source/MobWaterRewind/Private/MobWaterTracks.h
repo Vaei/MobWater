@@ -27,6 +27,12 @@ enum class EMobWaterCurve : uint8
 	WaveHash,
 	BodyCount,
 
+	// A body of water, hung off the component and off the actor carrying it.
+	BodyX,
+	BodyY,
+	BodyZ,
+	BodyYaw,
+
 	// A query, hung off whoever made it.
 	SurfaceZ,
 	ImmersionDepth,
@@ -89,6 +95,35 @@ private:
 };
 
 /**
+ * Where a body of water was, hung off the body and off the actor carrying it.
+ *
+ * The third of the three things two machines can disagree about, and the one that is usually somebody
+ * else's bug: a ship that replicated late moves the water it carries, and a recording that held the
+ * clock and the wave set but not this sends someone looking for the fault in the wrong plugin.
+ */
+class FMobWaterBodyTrack : public RewindDebugger::FRewindDebuggerTrack
+{
+public:
+	explicit FMobWaterBodyTrack(uint64 InObjectId);
+
+private:
+	//~ Begin FRewindDebuggerTrack Interface
+	virtual bool UpdateInternal() override;
+	virtual FSlateIcon GetIconInternal() override { return Icon; }
+	virtual FName GetNameInternal() const override { return "MobWaterBody"; }
+	virtual FText GetDisplayNameInternal() const override;
+	virtual uint64 GetObjectIdInternal() const override { return ObjectId; }
+	virtual TConstArrayView<TSharedPtr<FRewindDebuggerTrack>> GetChildrenInternal(
+		TArray<TSharedPtr<FRewindDebuggerTrack>>& OutTracks) const override;
+	//~ End FRewindDebuggerTrack Interface
+
+	FSlateIcon Icon;
+	uint64 ObjectId;
+
+	TArray<TSharedPtr<FRewindDebuggerTrack>> Children;
+};
+
+/**
  * What this object asked the water, and what it was told.
  *
  * The location is here as well as the answer, and that is the whole reason this track exists. Most of
@@ -122,6 +157,16 @@ class FMobWaterStateTrackCreator : public RewindDebugger::IRewindDebuggerTrackCr
 {
 	virtual FName GetTargetTypeNameInternal() const override;
 	virtual FName GetNameInternal() const override { return "MobWater"; }
+	virtual void GetTrackTypesInternal(TArray<RewindDebugger::FRewindDebuggerTrackType>& Types) const override;
+	virtual TSharedPtr<RewindDebugger::FRewindDebuggerTrack> CreateTrackInternal(
+		const RewindDebugger::FObjectId& InObjectId) const override;
+	virtual bool HasDebugInfoInternal(const RewindDebugger::FObjectId& InObjectId) const override;
+};
+
+class FMobWaterBodyTrackCreator : public RewindDebugger::IRewindDebuggerTrackCreator
+{
+	virtual FName GetTargetTypeNameInternal() const override;
+	virtual FName GetNameInternal() const override { return "MobWaterBody"; }
 	virtual void GetTrackTypesInternal(TArray<RewindDebugger::FRewindDebuggerTrackType>& Types) const override;
 	virtual TSharedPtr<RewindDebugger::FRewindDebuggerTrack> CreateTrackInternal(
 		const RewindDebugger::FObjectId& InObjectId) const override;

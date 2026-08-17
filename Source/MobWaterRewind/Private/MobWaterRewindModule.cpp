@@ -15,6 +15,8 @@ void FMobWaterRewindModule::StartupModule()
 	Features.RegisterModularFeature(
 		RewindDebugger::IRewindDebuggerTrackCreator::ModularFeatureName, &StateTrackCreator);
 	Features.RegisterModularFeature(
+		RewindDebugger::IRewindDebuggerTrackCreator::ModularFeatureName, &BodyTrackCreator);
+	Features.RegisterModularFeature(
 		RewindDebugger::IRewindDebuggerTrackCreator::ModularFeatureName, &QueryTrackCreator);
 }
 
@@ -25,6 +27,8 @@ void FMobWaterRewindModule::ShutdownModule()
 	Features.UnregisterModularFeature(TraceServices::ModuleFeatureName, &TraceModule);
 	Features.UnregisterModularFeature(
 		RewindDebugger::IRewindDebuggerTrackCreator::ModularFeatureName, &StateTrackCreator);
+	Features.UnregisterModularFeature(
+		RewindDebugger::IRewindDebuggerTrackCreator::ModularFeatureName, &BodyTrackCreator);
 	Features.UnregisterModularFeature(
 		RewindDebugger::IRewindDebuggerTrackCreator::ModularFeatureName, &QueryTrackCreator);
 }

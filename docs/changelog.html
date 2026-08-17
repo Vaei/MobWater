@@ -87,13 +87,14 @@ Not officially released. Expect updates without versioning, and a changelog that
 <li>A buoyancy component: pontoons, a coefficient that is a multiple of the body's own weight, vertical, lateral and angular damping, flow, and an optional alignment to the surface normal</li>
 <li>A virtual movement seam, because a plugin cannot know what movement component a project uses</li>
 <li>An underwater component: a plane in front of the camera that absorbs by distance, with the waterline drawn across it as a real line that tilts as a swell passes, a meniscus bead on it, and light dappling down through the water as a compiled permutation</li>
+<li>The underwater view follows whichever camera is drawing the picture: the local player's, the debug camera the moment it takes the local player over, and an editor viewport when nothing is playing at all. It used to hang off every local controller's camera manager, so flying an editor camera under the surface showed nothing and a debug camera left the plane standing where the view had been</li>
 <li>A query API that answers from the wave model alone, attributed to the object that asked</li>
 </ul>
 
 <h3>Editor</h3>
 
 <ul>
-<li>A Water toolbar menu: draggable placement rows, Set Up Water, Generate Materials, Bake Ocean Spectrum, Verify Contract, Report Cost, Open Wave Collection, Open Selected Body's Material, Select Ocean, project settings, and a per-developer hide</li>
+<li>A Water toolbar menu: draggable placement rows, Set Up Water, Generate Materials, Bake Ocean Spectrum, Verify Contract, Report Cost, Open Wave Collection, Open Selected Body's Material, Select Ocean, Debug Ocean In Rewind Debugger, project settings, and a per-developer hide</li>
 <li>Set Up Water checks its config file out of source control, so the settings survive a restart</li>
 <li>A missing-material notification with a link that generates them</li>
 <li>Details customization that orders the water categories</li>
@@ -111,6 +112,8 @@ Not officially released. Expect updates without versioning, and a changelog that
 
 <ul>
 <li>A <b>Water</b> track on the world carrying the clock, the wave set and the body count, and a <b>Water Queries</b> track on anything that asked - what it was told and where it asked, which is what tells a water bug from a replication bug</li>
+<li>A <b>Water Body</b> track on a body of water carrying its surface height, position and yaw. Filed under the actor as well as the component, because what anybody selects is the actor - keyed to the component alone, an ocean picked in the viewport found nothing and read as though nothing had been recorded</li>
+<li><b>Water &gt; Debug Ocean In Rewind Debugger</b>, which opens the panel on the level's ocean and deliberately does not start recording</li>
 <li>Behind the <code>MobWater</code> trace channel, with queries behind a switch of their own. Nothing about ripples or foam is recorded, because a dedicated server never had them</li>
 </ul>
 
