@@ -14,7 +14,7 @@ UE5.8+
 ---
 
 > [!CAUTION]
-> Shore line support for oceans and waterfalls have not yet been added at all
+> Shore line support for oceans, waterfalls, and several major features have not yet been added at all
 
 > [!CAUTION]
 > MobWater has not officially released. Expect terrible bugs, and updates without versioning or a changelog reflecting them. The documentation is written but there are no images or videos in it yet. **Come back soon!**
