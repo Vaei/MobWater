@@ -91,7 +91,8 @@
 <tr><td>A fifth volume holds nothing back</td><td>four are rendered at once, nearest the view. The log says so once</td></tr>
 <tr><td>A distant hull fills with water</td><td>the same. The CPU query answers from all of them, so it and the pixels disagree - the query is right</td></tr>
 <tr><td>Water is on a bridge deck over a lake</td><td>exclusion is a footprint, not a storey. Inherent</td></tr>
-<tr><td>A mesh exclusion behaves as a rectangle</td><td>it is not implemented, and says so once rather than quietly doing something else</td></tr>
+<tr><td>A mesh exclusion behaves as a rectangle</td><td>no outline was baked, and it says so once. Set <b>Exclusion Mesh</b>, or put the component on an actor that has a static mesh</td></tr>
+<tr><td>A mesh exclusion cuts nothing</td><td>it reaches only as far as its window does, and four are carried at once. <code>mob.Water.Debug</code> reports how many outlines are registered, how many have a mask, and where the window is</td></tr>
 <tr><td>A character in a carved hull still counts as swimming</td><td>the query does not subtract exclusion. Ask <code>GetExclusionAtLocation</code> - see <a href="exclusion.html#asking-on-the-cpu">Exclusion</a></td></tr>
 </tbody>
 </table></div>

@@ -38,6 +38,7 @@ SPECTRUM_ROOT = '/MobWater/Spectra'
 MASTERS = [
     'M_MobWater',
     'M_MobWaterUnderwater',
+    'M_MobWaterExclusionField',
     'M_MobWaterRippleStep',
     'M_MobWaterRippleCopy',
     'M_MobWaterRippleStamp',

@@ -82,7 +82,7 @@ The compounding case is the one that needs it. A character standing on a ship de
 <div class="tw"><table class="free">
 <tbody>
 <tr><td><b>Depth is authored</b></td><td>the bed is only knowable per pixel, from the depth buffer, and the CPU cannot read it. <code>Depth</code> is the body's own property, so a pool sitting over a floor it does not match will report water that is not there</td></tr>
-<tr><td><b>Exclusion is not subtracted</b></td><td>a point inside a hull still has a surface above it. Ask <code>UMobWaterSubsystem::GetExclusionAtLocation</code> as well - see <a href="exclusion.html#asking-on-the-cpu">Exclusion</a></td></tr>
+<tr><td><b>Exclusion is answered from every volume</b></td><td>not only the four the shader can see, so a query and a pixel can disagree about a distant hull - the query is right and the pixel is out of slots</td></tr>
 </tbody>
 </table></div>
 
