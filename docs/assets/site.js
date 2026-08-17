@@ -104,9 +104,11 @@ window.DOCS = {
 		'exclusion.hull':       { page: 'exclusion.html', cap: 'A hull carved out of a lake, dry inside while it moves', file: 'exclusion-hull.png' },
 		'exclusion.shapes':     { page: 'exclusion.html', cap: 'Disc, sphere, box and rect, and the edge each makes', file: 'exclusion-shapes.png' },
 		'exclusion.softness':   { page: 'exclusion.html', cap: 'Edge softness from 0 to a metre', file: 'exclusion-softness.png' },
+		'exclusion.mesh':       { page: 'exclusion.html', cap: 'A hull cut by its own outline, beside the bounding rectangle it used to be', file: 'exclusion-mesh.png' },
 
 		'underwater.view':      { page: 'underwater.html', cap: 'Under the surface, absorbing with distance', file: 'underwater-view.png' },
-		'underwater.crossing':  { page: 'underwater.html', cap: 'The crossfade at the waterline', file: 'underwater-crossing.png' },
+		'underwater.crossing':  { page: 'underwater.html', cap: 'The waterline across the view, with the bead on it', file: 'underwater-crossing.png' },
+		'underwater.caustics':  { page: 'underwater.html', cap: 'Light dappling down through the water, seen from under it', file: 'underwater-caustics.png' },
 
 		'characters.wade':      { page: 'characters.html', cap: 'Wading, with the ripples the feet leave', file: 'characters-wade.png' },
 		'characters.splash':    { page: 'characters.html', cap: 'A splash bound to OnSplash, at the depth it happened', file: 'characters-splash.png' },

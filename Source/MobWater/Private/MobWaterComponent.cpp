@@ -549,6 +549,19 @@ FMobWaterInfo UMobWaterComponent::GetWaterInfoAtLocation(const FVector& Location
 
 	Info.FlowVelocity = GetWorldFlowVelocity();
 
+	// Water an exclusion volume keeps out is water nothing can float in. Left out of the query, a
+	// hull carves a hole in what is drawn and still lifts whatever is standing in the hole, and a
+	// character walking through a dry dock swims across it.
+	Info.Exclusion = Subsystem->GetExclusionAt(Location);
+	if (Info.Exclusion >= 1.f)
+	{
+		return FMobWaterInfo();
+	}
+
+	// Scaled rather than switched, because Strength below one is a grating rather than a hull: it
+	// thins the water instead of clearing it, and half the water is half the lift.
+	Info.ImmersionDepth *= 1.f - Info.Exclusion;
+
 	return Info;
 }
 

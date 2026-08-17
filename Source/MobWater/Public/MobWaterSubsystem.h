@@ -130,6 +130,9 @@ public:
 	UFUNCTION(BlueprintPure, Category="Water", meta=(WorldContext="WorldContextObject"))
 	static float GetExclusionAtLocation(const UObject* WorldContextObject, const FVector& Location);
 
+	/** The same, without the lookup, for the query path that already has the subsystem in hand. */
+	float GetExclusionAt(const FVector& Location) const;
+
 	void RegisterDisturber(class UMobWaterDisturbanceComponent* Disturber);
 	void UnregisterDisturber(class UMobWaterDisturbanceComponent* Disturber);
 
@@ -220,6 +223,19 @@ protected:
 	 */
 	void PublishExclusions();
 
+	/**
+	 * Draws the baked mesh outlines nearest the view into their own target.
+	 *
+	 * Separate from the analytic publish because these are textures, and a texture cannot go in a
+	 * parameter collection. Separate from the ripple field because a still pool with a hull in it is
+	 * exactly the case that would otherwise lose its hole, ripples being off.
+	 */
+	void TickMeshExclusions();
+
+	/** Points the outline material at the outlines nearest the view. Answers how many it found. */
+	int32 PublishMeshExclusions(class UMaterialInstanceDynamic* Material, const FVector2D& Origin,
+		float Extent) const;
+
 	/** Pushes queued by AddRipple, drawn on the next field tick. Location, radius, strength. */
 	TArray<FVector4> PendingRipples;
 
@@ -231,6 +247,15 @@ protected:
 
 	UPROPERTY(Transient)
 	TObjectPtr<class UMaterialInstanceDynamic> StampMaterial;
+
+	UPROPERTY(Transient)
+	TObjectPtr<class UMaterialInstanceDynamic> ExclusionMaterial;
+
+	/** Where the outline window is centred, snapped to its own texels. */
+	FVector2D ExclusionOrigin = FVector2D::ZeroVector;
+
+	/** Whether anything is in the outline target, so a level that loses its last hull clears it once. */
+	bool bExclusionFieldDrawn = false;
 
 	/** Where the field is centred, snapped to its own texels. */
 	FVector2D FieldOrigin = FVector2D::ZeroVector;

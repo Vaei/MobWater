@@ -14,7 +14,7 @@
 <main>
 
 <h1>Underwater</h1>
-<p class="lede">A plane in front of the camera that absorbs by distance, so the world goes green and then gone.</p>
+<p class="lede">A plane in front of the camera that absorbs by distance, with the waterline drawn across it and the light coming down through it.</p>
 
 <h2>What it is</h2>
 
@@ -37,15 +37,43 @@ Absorbing by distance is the whole point. A flat overlay tints everything the sa
 <tr><td><b>Size</b></td><td>200 cm</td><td>how wide the plane is at that distance. Wide enough to cover the widest field of view the game uses</td></tr>
 <tr><td><b>Clarity</b></td><td>1200 cm</td><td>how far light travels before it is gone. This is the whole read of how clean the water is: a few metres is a silty river, tens of metres is open sea</td></tr>
 <tr><td><b>Absorb Color</b></td><td>0.02, 0.09, 0.13</td><td>what the water absorbs down to</td></tr>
-<tr><td><b>Cross Fade Depth</b></td><td>12 cm</td><td>how far below the surface before it is fully underwater</td></tr>
+<tr><td><b>Cross Fade Depth</b></td><td>12 cm</td><td>the short fade that brings the plane in at all. The waterline itself is geometry, so this is not what draws it</td></tr>
+<tr><td><b>Meniscus Thickness</b></td><td>2.5 cm</td><td>how tall the bead of water clinging to the lens is</td></tr>
+<tr><td><b>Meniscus Strength</b></td><td>1.0</td><td>how much denser and brighter the bead is than the water behind it. 0 leaves a plain cut</td></tr>
+<tr><td><b>Caustics</b></td><td>on</td><td>light dappling down through the water. A compiled permutation, not a strength</td></tr>
+<tr><td><b>Caustic Strength</b></td><td>0.6</td><td>how bright the dappling is</td></tr>
+<tr><td><b>Caustic Scale</b></td><td>400 cm</td><td>the world size the web tiles over</td></tr>
+<tr><td><b>Caustic Depth</b></td><td>800 cm</td><td>how far down the dappling is lost</td></tr>
 </tbody>
 </table></div>
 
-<h2>Crossing the surface</h2>
+<h2>The waterline is a line</h2>
 
-<p>Crossing instantly is what makes a camera at the waterline flicker between two completely different images every frame it bobs. <b>Cross Fade Depth</b> is the band it fades across instead.</p>
+<p>The plane is a real quad in the world, so where the water's surface crosses it is a real line - and the surface normal the query already returned tilts that line as a swell passes. That is the whole difference between a camera at the waterline and a screen going green.</p>
 
 <div data-shot="underwater.crossing"></div>
+
+<p>Above the line the plane is transparent and you see the world; below it, the absorption. On the line itself sits the <b>meniscus</b>: a bead a couple of centimetres tall, denser and brighter than the water behind it, because water clinging to a lens is the one part of the view that is genuinely thick.</p>
+
+<div class="important">
+Fading the whole screen in over a few centimetres instead is the same information thrown away. The camera is never wholly in or wholly out at the moment it matters, and the one thing everybody recognises about that moment is where the line was.
+</div>
+
+<p>The surface is taken as a plane through the eye's own column, tilted by the normal there. Exact to first order, which across a quad held at arm's length is exact - and it costs a dot product where evaluating the wave set a second time in the pixel shader would cost the whole set.</p>
+
+<h2>Light coming down</h2>
+
+<p>Turn <b>Caustics</b> on and the same two layers the surface throws onto its bed are read where the view ray ends, and added to the water's own colour.</p>
+
+<div data-shot="underwater.caustics"></div>
+
+<p>Added to the water rather than to what is behind it, which is the only place a translucent pass can put it - and it is also the honest one: what is being seen from down here is the web scattering in the column, not a pattern painted on a wall.</p>
+
+<p>It is faded twice. By how deep the eye is, because caustics are focused light and focus is the first thing a column takes; and by how far off the thing being looked at is, because at the far end of the clarity the water has already absorbed everything.</p>
+
+<div class="warn">
+A compiled permutation, not a strength of zero. It is two texture reads on a quad that covers the screen, which is the most expensive place in this renderer to carry something nobody asked for. Off, the taps and their coordinates are not in the shader at all - the plane runs the plain <code>M_MobWaterUnderwater</code> rather than <code>MI_MobWaterUnderwater_Caustics</code>.
+</div>
 
 <div class="tw"><table class="free">
 <tbody>
@@ -59,17 +87,17 @@ Absorbing by distance is the whole point. A flat overlay tints everything the sa
 The submersion test asks the same query everything else does, so the camera goes under at the height the waves actually put the surface, not at the body's still level. A swell passing over a swimmer's head submerges the view.
 </div>
 
-<h2>What is not done yet</h2>
+<h2>What is not done</h2>
 
 <div class="warn">
-Two parts of the underwater picture are not built. The <b>meniscus</b> - the line at the surface seen from underneath, where the world above goes to reflection - and <b>caustics seen from below</b>, on submerged surfaces. The absorption and the submersion state are what exists.
+There is no <b>Snell's window</b>: looking up from deep water does not compress the world above into a bright disc ringed by total internal reflection. That needs the world above refracted through the surface as seen from below, which is a second view - not something a quad reading the depth buffer can stand in for.
 </div>
 
-<p>The caustics that <i>are</i> implemented are drawn by the water surface downwards onto its bed, which is the view from above. See <a href="techniques.html#caustics">Caustics</a>.</p>
+<p>The caustics the <i>surface</i> draws are a different thing again: those are thrown downwards onto the bed, which is the view from above. See <a href="techniques.html#caustics">Caustics</a>.</p>
 
 <h2>Cost</h2>
 
-<p><code>M_MobWaterUnderwater</code> is <b>250 vertex, 143 pixel instructions, 2 samplers</b>. It covers the whole screen while it is drawn, which is the only time anything in this plugin does - but it is drawn only while the camera is submerged, and while it is, most of what it is covering is water that has stopped being drawn behind it.</p>
+<p>Measured under <b>Report Cost</b>. It covers the whole screen while it is drawn, which is the only time anything in this plugin does - but it is drawn only while the camera is submerged, and while it is, most of what it is covering is water that has stopped being drawn behind it.</p>
 
 <p><a class="cta" href="characters.html">Now characters in it &rarr;</a></p>
 

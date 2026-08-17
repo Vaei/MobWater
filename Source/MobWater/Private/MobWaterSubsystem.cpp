@@ -14,6 +14,7 @@
 #include "Components/LightComponent.h"
 #include "Engine/DirectionalLight.h"
 #include "EngineUtils.h"
+#include "Engine/Texture2D.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
@@ -97,6 +98,27 @@ namespace MobWaterParams
 
 	/** (Softness0, Softness1, Softness2, Softness3), because a float4 is cheaper than four scalars. */
 	static const FName ExclusionSoftness = TEXT("ExclusionSoftness");
+
+	/** The baked outlines, on the step material rather than the collection: they are textures. */
+	static const FName MeshMask[MOB_WATER_MESH_EXCLUSION_SLOTS] =
+	{
+		TEXT("MeshMask0"), TEXT("MeshMask1"), TEXT("MeshMask2"), TEXT("MeshMask3"),
+	};
+
+	/** (CentreX, CentreY, HalfX, HalfY) per outline. */
+	static const FName MeshExclusionA[MOB_WATER_MESH_EXCLUSION_SLOTS] =
+	{
+		TEXT("MeshA0"), TEXT("MeshA1"), TEXT("MeshA2"), TEXT("MeshA3"),
+	};
+
+	/** (CosYaw, SinYaw, SpanOverSoftness, Strength) per outline. */
+	static const FName MeshExclusionB[MOB_WATER_MESH_EXCLUSION_SLOTS] =
+	{
+		TEXT("MeshB0"), TEXT("MeshB1"), TEXT("MeshB2"), TEXT("MeshB3"),
+	};
+
+	/** Where the outline window is: (OriginX, OriginY, Extent, 1 / Extent). */
+	static const FName ExclusionArea = TEXT("ExclusionArea");
 
 	/** Which way the sun is going, so the surface knows where to put its glint. */
 	static const FName SunDirection = TEXT("SunDirection");
@@ -208,6 +230,7 @@ void UMobWaterSubsystem::Tick(float DeltaTime)
 	TickSun();
 	PublishExclusions();
 	TickRipples(DeltaTime);
+	TickMeshExclusions();
 	TickUnderwater();
 }
 
@@ -449,19 +472,25 @@ void UMobWaterSubsystem::UnregisterExclusion(UMobWaterExclusionComponent* Exclus
 float UMobWaterSubsystem::GetExclusionAtLocation(const UObject* WorldContextObject, const FVector& Location)
 {
 	const UMobWaterSubsystem* Subsystem = Get(WorldContextObject);
-	if (!Subsystem)
-	{
-		return 0.f;
-	}
+	return Subsystem ? Subsystem->GetExclusionAt(Location) : 0.f;
+}
 
+float UMobWaterSubsystem::GetExclusionAt(const FVector& Location) const
+{
 	float Most = 0.f;
-	for (const TWeakObjectPtr<UMobWaterExclusionComponent>& Entry : Subsystem->Exclusions)
+	for (const TWeakObjectPtr<UMobWaterExclusionComponent>& Entry : Exclusions)
 	{
 		if (const UMobWaterExclusionComponent* Exclusion = Entry.Get())
 		{
 			if (Exclusion->bBlocksSubmersion)
 			{
 				Most = FMath::Max(Most, Exclusion->GetExclusionAt(Location));
+
+				if (Most >= 1.f)
+				{
+					// Nothing left to remove, and a hull in a marina is several volumes deep.
+					return 1.f;
+				}
 			}
 		}
 	}
@@ -481,7 +510,9 @@ void UMobWaterSubsystem::PublishExclusions()
 	{
 		if (UMobWaterExclusionComponent* Exclusion = Entry.Get())
 		{
-			if (Exclusion->IsActive() && Exclusion->Strength > 0.f)
+			// A baked outline goes into the field instead, and taking a slot as well would carve its
+			// bounding rectangle out from under the shape it just cut.
+			if (Exclusion->IsActive() && Exclusion->Strength > 0.f && !Exclusion->IsMesh())
 			{
 				Live.Add(Exclusion);
 			}
@@ -528,6 +559,152 @@ void UMobWaterSubsystem::PublishExclusions()
 	}
 
 	SetVector(MobWaterParams::ExclusionSoftness, Softness);
+}
+
+void UMobWaterSubsystem::TickMeshExclusions()
+{
+	const UMobWaterSettings* Settings = GetDefault<UMobWaterSettings>();
+
+	UTextureRenderTarget2D* Target = Settings->ExclusionTarget.LoadSynchronous();
+	UMaterialInterface* Draw = Settings->ExclusionFieldMaterial.LoadSynchronous();
+
+	if (!Target || !Draw)
+	{
+		return;
+	}
+
+#if WITH_EDITOR
+	// The one target is shared by every world that exists at once, and an editor world keeps ticking
+	// while play is in progress. Same reason the ripple field defers.
+	if (GetWorld()->WorldType == EWorldType::Editor && GEngine)
+	{
+		for (const FWorldContext& Context : GEngine->GetWorldContexts())
+		{
+			if (Context.WorldType == EWorldType::PIE)
+			{
+				return;
+			}
+		}
+	}
+#endif
+
+	FVector ViewLocation;
+	FVector ViewForward;
+	if (!GetViewLocation(ViewLocation, &ViewForward))
+	{
+		return;
+	}
+
+	const float Extent = FMath::Max(Settings->RippleExtent, 100.f);
+	const float Texel = Extent / FMath::Max(Target->SizeX, 1);
+
+	// Snapped to whole texels, so a window that follows the view does not resample an outline into a
+	// crawling edge as the camera moves.
+	const FVector Centre = ViewLocation + ViewForward * (Extent * 0.25f);
+	ExclusionOrigin = FVector2D(
+		FMath::GridSnap(Centre.X, Texel),
+		FMath::GridSnap(Centre.Y, Texel));
+
+	SetVector(MobWaterParams::ExclusionArea, FLinearColor(
+		static_cast<float>(ExclusionOrigin.X), static_cast<float>(ExclusionOrigin.Y),
+		Extent, 1.f / Extent));
+
+	if (!ExclusionMaterial || ExclusionMaterial->Parent != Draw)
+	{
+		ExclusionMaterial = UMaterialInstanceDynamic::Create(Draw, this);
+	}
+
+	if (!ExclusionMaterial)
+	{
+		return;
+	}
+
+	const int32 Found = PublishMeshExclusions(ExclusionMaterial, ExclusionOrigin, Extent);
+
+	if (Found == 0)
+	{
+		// Cleared once rather than redrawn empty every frame. A level with no baked outline in it -
+		// which is most of them - should not be paying for a pass that answers zero.
+		if (bExclusionFieldDrawn)
+		{
+			UKismetRenderingLibrary::ClearRenderTarget2D(GetWorld(), Target, FLinearColor::Black);
+			bExclusionFieldDrawn = false;
+		}
+		return;
+	}
+
+	UKismetRenderingLibrary::DrawMaterialToRenderTarget(GetWorld(), Target, ExclusionMaterial);
+	bExclusionFieldDrawn = true;
+}
+
+int32 UMobWaterSubsystem::PublishMeshExclusions(UMaterialInstanceDynamic* Material,
+	const FVector2D& Origin, float Extent) const
+{
+	if (!Material)
+	{
+		return 0;
+	}
+
+	Material->SetVectorParameterValue(MobWaterParams::ExclusionArea, FLinearColor(
+		static_cast<float>(Origin.X), static_cast<float>(Origin.Y), Extent, 1.f / Extent));
+
+	TArray<UMobWaterExclusionComponent*> Live;
+
+	for (const TWeakObjectPtr<UMobWaterExclusionComponent>& Entry : Exclusions)
+	{
+		UMobWaterExclusionComponent* Exclusion = Entry.Get();
+		if (!Exclusion || !Exclusion->IsActive() || Exclusion->Strength <= 0.f || !Exclusion->IsMesh())
+		{
+			continue;
+		}
+
+		// Anything wholly outside the field cannot mark it, and dropping it here leaves the slot for
+		// an outline that can. The field is a square Extent across, centred on its origin.
+		const FVector2D Offset = FVector2D(Exclusion->GetComponentLocation()) - Origin;
+		const FVector2D Reach = Exclusion->GetWorldExtent() + FVector2D(Extent * 0.5, Extent * 0.5);
+
+		if (FMath::Abs(Offset.X) > Reach.X || FMath::Abs(Offset.Y) > Reach.Y)
+		{
+			continue;
+		}
+
+		Live.Add(Exclusion);
+	}
+
+	if (Live.Num() > MOB_WATER_MESH_EXCLUSION_SLOTS)
+	{
+		// Largest first rather than nearest. An outline is only in this list at all because it
+		// reaches the field, and the one that carves most of it is the one worth keeping.
+		Live.Sort([](const UMobWaterExclusionComponent& A, const UMobWaterExclusionComponent& B)
+		{
+			return A.GetWorldExtent().SizeSquared() > B.GetWorldExtent().SizeSquared();
+		});
+	}
+
+	for (int32 Slot = 0; Slot < MOB_WATER_MESH_EXCLUSION_SLOTS; ++Slot)
+	{
+		FLinearColor A = FLinearColor(0.f, 0.f, 1.f, 1.f);
+		FLinearColor B = FLinearColor::Transparent;
+
+		if (Live.IsValidIndex(Slot))
+		{
+			Live[Slot]->PackMeshForShader(A, B);
+
+			if (UTexture2D* Mask = Live[Slot]->GetSilhouetteTexture())
+			{
+				Material->SetTextureParameterValue(MobWaterParams::MeshMask[Slot], Mask);
+			}
+			else
+			{
+				B.A = 0.f;
+			}
+		}
+
+		Material->SetVectorParameterValue(MobWaterParams::MeshExclusionA[Slot], A);
+		Material->SetVectorParameterValue(MobWaterParams::MeshExclusionB[Slot], B);
+	}
+
+	return FMath::Min(Live.Num(), MOB_WATER_MESH_EXCLUSION_SLOTS);
 }
 
 void UMobWaterSubsystem::RegisterDisturber(UMobWaterDisturbanceComponent* Disturber)
@@ -996,6 +1173,25 @@ void UMobWaterSubsystem::DumpState() const
 	UE_LOG(LogMobWater, Display, TEXT("  ripple field %s, origin (%.0f, %.0f), %d disturbers, %d stamped"),
 		bFieldValid ? TEXT("valid") : TEXT("not yet centred"),
 		FieldOrigin.X, FieldOrigin.Y, Disturbers.Num(), LastStampCount);
+
+	int32 Outlines = 0;
+	int32 WithoutMask = 0;
+	for (const TWeakObjectPtr<UMobWaterExclusionComponent>& Entry : Exclusions)
+	{
+		if (const UMobWaterExclusionComponent* Exclusion = Entry.Get())
+		{
+			if (Exclusion->IsMesh())
+			{
+				++Outlines;
+				WithoutMask += Exclusion->GetSilhouetteTexture() ? 0 : 1;
+			}
+		}
+	}
+
+	UE_LOG(LogMobWater, Display,
+		TEXT("  %d exclusion volume(s), %d baked outline(s) (%d without a mask), window (%.0f, %.0f), %s"),
+		Exclusions.Num(), Outlines, WithoutMask, ExclusionOrigin.X, ExclusionOrigin.Y,
+		bExclusionFieldDrawn ? TEXT("drawn") : TEXT("empty"));
 
 	UE_LOG(LogMobWater, Display, TEXT("  waves %d, amplitude %.2f, speed %.2f, choppiness %.2f"),
 		DefaultWaves.Waves.Num(), DefaultWaves.AmplitudeScale, DefaultWaves.SpeedScale, DefaultWaves.ChoppinessScale);

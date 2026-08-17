@@ -28,6 +28,33 @@ namespace
 
 		/** 0 above the surface, 1 fully under. */
 		static constexpr int32 Submersion = 4;
+
+		/**
+		 * The surface normal at the eye. Occupies 5, 6 and 7.
+		 *
+		 * With the depth below it, this is the plane the waterline is drawn as. A normal rather than
+		 * a height alone because the surface tilts, and a horizontal line across the view while a
+		 * swell is passing is the tell that the waterline is a screen effect and not a surface.
+		 */
+		static constexpr int32 SurfaceNormal = 5;
+
+		/** How far the eye is below that plane, in world units. */
+		static constexpr int32 ImmersionDepth = 8;
+
+		/** How tall the bead of water at the waterline is, in world units. */
+		static constexpr int32 MeniscusThickness = 9;
+
+		/** How much denser and brighter the bead is than the water behind it. */
+		static constexpr int32 MeniscusStrength = 10;
+
+		/** How bright the dappling coming down through the water is. */
+		static constexpr int32 CausticStrength = 11;
+
+		/** The world size the caustic web tiles over. */
+		static constexpr int32 CausticScale = 12;
+
+		/** How far down the dappling is lost, in world units. */
+		static constexpr int32 CausticDepth = 13;
 	}
 }
 
@@ -65,15 +92,27 @@ void UMobWaterUnderwaterComponent::OnRegister()
 		}
 	}
 
-	if (UMaterialInterface* Material = GetDefault<UMobWaterSettings>()->UnderwaterMaterial.LoadSynchronous())
+	ApplyMaterial();
+	ApplyPlacement();
+}
+
+void UMobWaterUnderwaterComponent::ApplyMaterial()
+{
+	const UMobWaterSettings* Settings = GetDefault<UMobWaterSettings>();
+
+	UMaterialInterface* Material = bCaustics
+		? Settings->UnderwaterCausticMaterial.LoadSynchronous()
+		: nullptr;
+
+	if (!Material)
 	{
-		if (GetMaterial(0) != Material)
-		{
-			SetMaterial(0, Material);
-		}
+		Material = Settings->UnderwaterMaterial.LoadSynchronous();
 	}
 
-	ApplyPlacement();
+	if (Material && GetMaterial(0) != Material)
+	{
+		SetMaterial(0, Material);
+	}
 }
 
 void UMobWaterUnderwaterComponent::ApplyPlacement()
@@ -98,8 +137,11 @@ void UMobWaterUnderwaterComponent::TickComponent(float DeltaTime, ELevelTick Tic
 	FMobWaterInfo Info;
 	const bool bFound = UMobWaterStatics::GetWaterInfoAtLocation(this, Eye, Info);
 
+	// Brought in from a little above the surface rather than from it, so the bead is already on
+	// screen as the eye goes under. Any further above and the quad's lower half would be absorbing
+	// a view that is travelling through air to get there.
 	const float Wanted = bFound
-		? FMath::Clamp(Info.ImmersionDepth / FMath::Max(CrossFadeDepth, 0.1f), 0.f, 1.f)
+		? FMath::Clamp((Info.ImmersionDepth + MeniscusThickness) / FMath::Max(CrossFadeDepth, 0.1f), 0.f, 1.f)
 		: 0.f;
 
 	Submersion = Wanted;
@@ -127,4 +169,21 @@ void UMobWaterUnderwaterComponent::TickComponent(float DeltaTime, ELevelTick Tic
 	SetCustomPrimitiveDataFloat(MobUnderwaterData::AbsorbColor + 2, AbsorbColor.B);
 	SetCustomPrimitiveDataFloat(MobUnderwaterData::Clarity, Clarity);
 	SetCustomPrimitiveDataFloat(MobUnderwaterData::Submersion, Submersion);
+
+	// The surface as a plane through the eye's own column. Exact to first order, which over a quad
+	// two metres across at arm's length is exact enough that nothing could tell - and it costs a dot
+	// product where evaluating the waves again here would cost the whole set a second time.
+	const FVector Normal = Info.Normal.GetSafeNormal();
+
+	SetCustomPrimitiveDataFloat(MobUnderwaterData::SurfaceNormal, static_cast<float>(Normal.X));
+	SetCustomPrimitiveDataFloat(MobUnderwaterData::SurfaceNormal + 1, static_cast<float>(Normal.Y));
+	SetCustomPrimitiveDataFloat(MobUnderwaterData::SurfaceNormal + 2, static_cast<float>(Normal.Z));
+	SetCustomPrimitiveDataFloat(MobUnderwaterData::ImmersionDepth, Info.ImmersionDepth);
+
+	SetCustomPrimitiveDataFloat(MobUnderwaterData::MeniscusThickness, MeniscusThickness);
+	SetCustomPrimitiveDataFloat(MobUnderwaterData::MeniscusStrength, MeniscusStrength);
+
+	SetCustomPrimitiveDataFloat(MobUnderwaterData::CausticStrength, bCaustics ? CausticStrength : 0.f);
+	SetCustomPrimitiveDataFloat(MobUnderwaterData::CausticScale, CausticScale);
+	SetCustomPrimitiveDataFloat(MobUnderwaterData::CausticDepth, CausticDepth);
 }

@@ -44,7 +44,11 @@ UMobWaterSettings::UMobWaterSettings()
 
 	ReflectionTexture = TSoftObjectPtr<UTexture>(FSoftObjectPath(TEXT("/MobWater/Textures/T_MobWaterSky.T_MobWaterSky")));
 
+	ExclusionTarget = TSoftObjectPtr<UTextureRenderTarget2D>(FSoftObjectPath(TEXT("/MobWater/Textures/RT_MobWaterExclusion.RT_MobWaterExclusion")));
+	ExclusionFieldMaterial = TSoftObjectPtr<UMaterialInterface>(FSoftObjectPath(TEXT("/MobWater/Materials/M_MobWaterExclusionField.M_MobWaterExclusionField")));
+
 	UnderwaterMaterial = TSoftObjectPtr<UMaterialInterface>(FSoftObjectPath(TEXT("/MobWater/Materials/M_MobWaterUnderwater.M_MobWaterUnderwater")));
+	UnderwaterCausticMaterial = TSoftObjectPtr<UMaterialInterface>(FSoftObjectPath(TEXT("/MobWater/Materials/MI_MobWaterUnderwater_Caustics.MI_MobWaterUnderwater_Caustics")));
 	UnderwaterComponent = UMobWaterUnderwaterComponent::StaticClass();
 
 	RippleTarget = TSoftObjectPtr<UTextureRenderTarget2D>(FSoftObjectPath(TEXT("/MobWater/Textures/RT_MobWaterRipple.RT_MobWaterRipple")));

@@ -56,6 +56,11 @@ COLLECTION_SCALARS = [
 # frame the field moves, and read by every body of water that has ripples on.
 COLLECTION_VECTORS = COLLECTION_VECTORS + [('RippleArea', (0.0, 0.0, 4000.0, 0.00025))]
 
+# Where the baked mesh outlines are drawn, in the same form. Its own window rather than the ripple
+# field's, because a body reads outlines whether or not it reads ripples - and a still pool with a
+# hull in it is exactly the case that would otherwise lose its hole.
+COLLECTION_VECTORS = COLLECTION_VECTORS + [('ExclusionArea', (0.0, 0.0, 2000.0, 0.0005))]
+
 # Four volumes water is kept out of, published nearest the view first. Has to agree with
 # MOB_WATER_EXCLUSION_SLOTS in MobWaterExclusionComponent.h and MOB_WATER_EXCLUSIONS in the shader.
 EXCLUSION_SLOTS = 4
@@ -271,11 +276,19 @@ float3 Disp = float3(0.0f, 0.0f, 0.0f);
 float3 Nrm = float3(0.0f, 0.0f, 1.0f);
 float Fold = 0.0f;
 
+// The body's own amplitude and speed go in here rather than scaling what comes out, and that is
+// not a tidiness. Scaling the result leaves the normal at the height the set was authored at, so a
+// body at a fifth amplitude draws flat water lit as though it were not - and there is no way at all
+// to scale a speed after the fact, the phase having already been taken.
+float BodyAmplitude;
+float BodySpeed;
+MobWaterUnpackBodyScales(BodyScales, BodyAmplitude, BodySpeed);
+
 MobWaterEvaluate(
 	A0, B0, A1, B1, A2, B2, A3, B3,
 	A4, B4, A5, B5, A6, B6, A7, B7,
 	SampleXY, Time,
-	Scales.y, Scales.z, Scales.w, Scales.x,
+	Scales.y * BodyAmplitude, Scales.z * BodySpeed, Scales.w, Scales.x,
 	Disp, Nrm, Fold);
 
 WaveNormal = Nrm;
@@ -352,6 +365,14 @@ return MobWaterColumn(SceneDepth, PixelDepth);
 
 _CODE_EXCLUSION = """
 return MobWaterExclusion(WorldXY, A0, B0, A1, B1, A2, B2, A3, B3, Softness);
+"""
+
+_CODE_EXCLUSION_UV = """
+return MobWaterExclusionUV(WorldXY, Area);
+"""
+
+_CODE_EXCLUSION_FIELD = """
+return MobWaterExclusionField(Sampled, UV);
 """
 
 _CODE_GLINT = """
@@ -482,7 +503,7 @@ return MobWaterBlendNormals(Base, Ripple);
 """
 
 
-def _wave_node(mat, collection, sample_xy, time, x, y):
+def _wave_node(mat, collection, sample_xy, time, body_scales, x, y):
     """The Custom node that evaluates the wave set, and the collection nodes feeding it."""
     inputs = []
     sources = []
@@ -495,14 +516,14 @@ def _wave_node(mat, collection, sample_xy, time, x, y):
 
     scales = g.collection_param(mat, collection, 'WaveScales', x - 2, y - 2)
 
-    inputs += ['SampleXY', 'Time', 'Scales']
+    inputs += ['SampleXY', 'Time', 'Scales', 'BodyScales']
 
     node = g.custom(mat, _CODE_WAVES, g.CMOT.CMOT_FLOAT3, inputs,
                     [('WaveNormal', g.CMOT.CMOT_FLOAT3), ('WaveFold', g.CMOT.CMOT_FLOAT1)],
                     x, y, 'The wave set, evaluated. Mirrors FMobWaterWaves::Evaluate exactly.',
                     includes=INCLUDES)
 
-    for name, src in zip(inputs, sources + [sample_xy, time, scales]):
+    for name, src in zip(inputs, sources + [sample_xy, time, scales, body_scales]):
         g.link(src, '', node, name)
 
     return node
@@ -671,7 +692,14 @@ def build_master_material():
     # surface detail and the surface shape can never be a frame out of step with each other.
     time_param = g.collection_param(mat, collection, 'Time', -5, 2)
 
-    waves = _wave_node(mat, collection, sample_xy, time_param, -3, 0)
+    # One slot for two numbers, unpacked inside the wave node. The primitive data is full at the
+    # engine's thirty six, and these two are the pair a body tunes together anyway.
+    body_scales = g.cpd_scalar(mat, 'WaveAmplitude', 100.0, CPD_WAVE_AMPLITUDE, 'Waves', -5, 4,
+                               'This body-s own wave amplitude in hundredths, with its wave speed '
+                               'in the fraction. MobWaterBodyScales packs it; nothing should be '
+                               'typed in here by hand.')
+
+    waves = _wave_node(mat, collection, sample_xy, time_param, body_scales, -3, 0)
 
     # --- and the sea that was solved offline --------------------------------
     #
@@ -739,18 +767,16 @@ def build_master_material():
     shore_analytic = g.static_switch(mat, b_radial, shore_radial, '', shore_box, '', -2, 27)
     shore = g.static_switch(mat, b_vertex_shore, shore_vertex, '', shore_analytic, '', -2, 31)
 
-    amplitude = g.cpd_scalar(mat, 'WaveAmplitude', 1.0, CPD_WAVE_AMPLITUDE, 'Waves', -3, 34,
-                             'Scales this body-s waves on top of the set the world shares.')
-
-    wave_scale = g.mul(mat, shore, '', amplitude, '', -1, 30)
-
     # The baked sea lies down at a bank on the same terms the authored waves do. An ocean sets no
     # fade distance so this is one multiply by one for it, and a body that did set one gets a
     # spectrum that stops at the shore rather than one that runs up the beach.
     displaced = g.add(mat, waves, '', spectrum_disp, '', -1, 18)
     displacement = g.static_switch(mat, b_spectrum, displaced, '', waves, '', -1, 20)
 
-    wpo = g.mul(mat, displacement, '', wave_scale, '', 0, 0)
+    # Only the shore fade multiplies the result. The body's own amplitude went into the wave node,
+    # where it also reaches the normal - and where it correctly leaves the baked sea alone, which
+    # carries its own scales and is not the wave set this scales.
+    wpo = g.mul(mat, displacement, '', shore, '', 0, 0)
 
     # --- how much water is in front of what is behind it --------------------
     scene_depth = g.expr(mat, unreal.MaterialExpressionSceneDepth, -5, 40)
@@ -1214,6 +1240,36 @@ def build_master_material():
 
     for name, src in zip(exclusion_inputs, exclusion_sources):
         g.link(src, '', exclusion, name)
+
+    # --- and the outlines no pair of numbers describes ----------------------
+    #
+    # One tap, through the shared clamped sampler, so it costs none of the sixteen. It is inside the
+    # exclusion switch rather than outside it, because a project with no hulls in the water should
+    # not be reading a target that is black everywhere.
+    exclusion_area = g.collection_param(mat, collection, 'ExclusionArea', -4, 92)
+
+    exclusion_uv = g.custom(mat, _CODE_EXCLUSION_UV, g.CMOT.CMOT_FLOAT2, ['WorldXY', 'Area'], [],
+                            -3, 92, 'Where in the outline window this pixel is.', includes=INCLUDES)
+    g.link(sample_xy, '', exclusion_uv, 'WorldXY')
+    g.link(exclusion_area, '', exclusion_uv, 'Area')
+
+    exclusion_mask = g.texture_param(mat, 'ExclusionField',
+                                     g.existing(g.TEX_ROOT + '/RT_MobWaterExclusion'),
+                                     'Exclusion', -2, 92,
+                                     g.ST.SAMPLERTYPE_LINEAR_COLOR, exclusion_uv, '',
+                                     'The window baked mesh outlines are drawn into.')
+    exclusion_mask.set_editor_property(
+        'sampler_source', unreal.SamplerSourceMode.SSM_CLAMP_WORLD_GROUP_SETTINGS)
+
+    outlines = g.custom(mat, _CODE_EXCLUSION_FIELD, g.CMOT.CMOT_FLOAT1, ['Sampled', 'UV'], [],
+                        -1, 92, 'What the outline window keeps out of here.', includes=INCLUDES)
+    g.link(exclusion_mask, 'R', outlines, 'Sampled')
+    g.link(exclusion_uv, '', outlines, 'UV')
+
+    # The larger of the two, not their sum. Both answer the same question, and an outline overlapping
+    # a volume would otherwise remove the water twice - which saturates and turns a soft edge hard
+    # for no reason anyone could find in either of them.
+    exclusion = g.binary(mat, unreal.MaterialExpressionMax, exclusion, '', outlines, '', 0, 86)
 
     kept = g.sub(mat, g.const(mat, 1.0, -1, 90), '', exclusion, '', 0, 88)
 
@@ -1873,15 +1929,65 @@ def build_material_instances(master):
 # ---------------------------------------------------------------------------
 
 UNDERWATER_NAME = 'M_MobWaterUnderwater'
+UNDERWATER_CAUSTIC_NAME = 'MI_MobWaterUnderwater_Caustics'
 
 # The underwater plane's own custom primitive data. Has to agree with MobUnderwaterData in
 # MobWaterUnderwaterComponent.cpp.
 UW_ABSORB_COLOR = 0
 UW_CLARITY = 3
 UW_SUBMERSION = 4
+UW_SURFACE_NORMAL = 5
+UW_IMMERSION_DEPTH = 8
+UW_MENISCUS_THICKNESS = 9
+UW_MENISCUS_STRENGTH = 10
+UW_CAUSTIC_STRENGTH = 11
+UW_CAUSTIC_SCALE = 12
+UW_CAUSTIC_DEPTH = 13
+
+# How far above and below the waterline this pixel is, and what that makes of it.
+#
+# Distance is signed, so one node answers both questions: whether the pixel is under the surface,
+# and how much of the bead is sitting on it.
+_CODE_WATERLINE = """
+float Distance = MobWaterWaterline(CameraRelative, SurfaceNormal, ImmersionDepth);
+
+float Wet;
+float Bead;
+MobWaterMeniscus(Distance, Thickness, Wet, Bead);
+
+MeniscusBead = Bead;
+return Wet;
+"""
 
 _CODE_UNDERWATER = """
-return MobWaterUnderwaterOpacity(SceneDepth, Clarity, Submersion);
+float Absorbed = MobWaterUnderwaterOpacity(SceneDepth, Clarity, Submersion);
+
+// The bead is denser than the water behind it, not merely brighter. Water clinging to a lens is the
+// one part of the view that is genuinely thick, and an opacity that only followed the absorption
+// would leave the line reading as a change of tint rather than as something on the glass.
+return saturate(Absorbed * Wet + Bead * Strength * 0.6f);
+"""
+
+_CODE_UNDERWATER_COLOR = """
+// Brightened at the line rather than tinted. What is seen there is the surface edge on, which
+// carries far more light to the eye than the column behind it does.
+return AbsorbColor * (1.0f + Bead * Strength * 1.5f + Caustics);
+"""
+
+_CODE_UNDERWATER_CAUSTIC_UV = """
+float3 Scene = MobWaterBedPosition(WorldPosition, CameraVector, SceneDepth);
+
+float2 UVA;
+float2 UVB;
+MobWaterCausticUVs(Scene.xy, Time, Scale, float2(0.0f, 0.0f), 1.0f, UVA, UVB);
+
+UVSecond = UVB;
+return UVA;
+"""
+
+_CODE_UNDERWATER_CAUSTICS = """
+return MobWaterUnderwaterCaustics(LayerA, LayerB, SceneDepth, ImmersionDepth, FadeDepth, Clarity,
+	Strength);
 """
 
 
@@ -1891,33 +1997,137 @@ def build_underwater_material():
     Unlit and translucent on a plane held in front of the near clip. Depth testing stays on: the
     plane is nearer than anything in the scene anyway, and turning it off would draw it over the
     editor's own gizmos as well.
+
+    The waterline across it is geometry rather than a fade. The plane is a real quad in the world, so
+    where the surface crosses it is a real line, and the surface normal the query already returned
+    tilts that line as a swell passes - which is the whole difference between a camera at the
+    waterline and a screen going green.
     """
     mat = g.get_or_create_material(g.MAT_ROOT, UNDERWATER_NAME)
+
+    collection = g.existing(g.MAT_ROOT + '/' + COLLECTION_NAME)
 
     mat.set_editor_property('material_domain', unreal.MaterialDomain.MD_SURFACE)
     mat.set_editor_property('shading_model', unreal.MaterialShadingModel.MSM_UNLIT)
     mat.set_editor_property('blend_mode', unreal.BlendMode.BLEND_TRANSLUCENT)
     mat.set_editor_property('two_sided', True)
 
-    scene_depth = g.expr(mat, unreal.MaterialExpressionSceneDepth, -3, 0)
+    scene_depth = g.expr(mat, unreal.MaterialExpressionSceneDepth, -6, 0)
 
-    clarity = g.cpd_scalar(mat, 'Clarity', 1200.0, UW_CLARITY, 'Underwater', -3, 2,
+    clarity = g.cpd_scalar(mat, 'Clarity', 1200.0, UW_CLARITY, 'Underwater', -6, 2,
                            'How far light travels through the water before it is gone.')
-    submersion = g.cpd_scalar(mat, 'Submersion', 1.0, UW_SUBMERSION, 'Underwater', -3, 3,
+    submersion = g.cpd_scalar(mat, 'Submersion', 1.0, UW_SUBMERSION, 'Underwater', -6, 3,
                               'Fades the whole effect in across the waterline.')
 
     absorb = g.cpd_vector(mat, 'AbsorbColor', (0.02, 0.09, 0.13, 1.0), UW_ABSORB_COLOR,
-                          'Underwater', -3, 4, 'What the water absorbs down to.')
+                          'Underwater', -6, 4, 'What the water absorbs down to.')
 
+    # --- the waterline ------------------------------------------------------
+    #
+    # Camera relative rather than absolute. A world position out at a kilometre dotted against a
+    # normal has lost the centimetre the answer is measured in before the dot is taken, and this is
+    # a distance of a few centimetres by construction.
+    camera_relative = g.expr(mat, unreal.MaterialExpressionWorldPosition, -6, 6)
+    camera_relative.set_editor_property(
+        'world_position_shader_offset',
+        unreal.WorldPositionIncludedOffsets.WPT_CAMERA_RELATIVE_NO_OFFSETS)
+
+    surface_normal = g.cpd_vector(mat, 'SurfaceNormal', (0.0, 0.0, 1.0, 0.0), UW_SURFACE_NORMAL,
+                                  'Meniscus', -6, 8,
+                                  'The surface normal at the eye, which is what tilts the waterline.')
+    immersion = g.cpd_scalar(mat, 'ImmersionDepth', 0.0, UW_IMMERSION_DEPTH, 'Meniscus', -6, 10,
+                             'How far the eye is below the surface.')
+    thickness = g.cpd_scalar(mat, 'MeniscusThickness', 2.5, UW_MENISCUS_THICKNESS, 'Meniscus',
+                             -6, 11, 'How tall the bead of water at the waterline is.')
+    meniscus_strength = g.cpd_scalar(mat, 'MeniscusStrength', 1.0, UW_MENISCUS_STRENGTH, 'Meniscus',
+                                     -6, 12, 'How much denser and brighter the bead is.')
+
+    waterline = g.custom(mat, _CODE_WATERLINE, g.CMOT.CMOT_FLOAT1,
+                         ['CameraRelative', 'SurfaceNormal', 'ImmersionDepth', 'Thickness'],
+                         [('MeniscusBead', g.CMOT.CMOT_FLOAT1)], -4, 7,
+                         'Where the surface crosses this quad, and the bead sitting on it.',
+                         includes=INCLUDES)
+    g.link(camera_relative, '', waterline, 'CameraRelative')
+    g.link(surface_normal, '', waterline, 'SurfaceNormal')
+    g.link(immersion, '', waterline, 'ImmersionDepth')
+    g.link(thickness, '', waterline, 'Thickness')
+
+    # --- the light coming down through it -----------------------------------
+    #
+    # A permutation rather than a strength, because it is two texture reads on a quad that covers the
+    # screen. Off, the taps and their coordinates leave the shader entirely.
+    b_caustics = g.static_bool(mat, 'bCaustics', False, 'Caustics', -4, 14, 0,
+                               'Light dappling down through the water. Off, its two samples and '
+                               'their addressing are not in the shader at all.')
+
+    world_pos = g.expr(mat, unreal.MaterialExpressionWorldPosition, -6, 14)
+    camera_vector = g.expr(mat, unreal.MaterialExpressionCameraVectorWS, -6, 15)
+
+    caustic_scale = g.cpd_scalar(mat, 'CausticScale', 400.0, UW_CAUSTIC_SCALE, 'Caustics', -6, 16,
+                                 'The world size the caustic web tiles over.')
+    caustic_depth = g.cpd_scalar(mat, 'CausticDepth', 800.0, UW_CAUSTIC_DEPTH, 'Caustics', -6, 17,
+                                 'How far down the dappling is lost.')
+    caustic_strength = g.cpd_scalar(mat, 'CausticStrength', 0.6, UW_CAUSTIC_STRENGTH, 'Caustics',
+                                    -6, 18, 'How bright the dappling is. 0 is none.')
+
+    time_param = g.collection_param(mat, collection, 'Time', -6, 13)
+
+    caustic_uv = g.custom(mat, _CODE_UNDERWATER_CAUSTIC_UV, g.CMOT.CMOT_FLOAT2,
+                          ['WorldPosition', 'CameraVector', 'SceneDepth', 'Time', 'Scale'],
+                          [('UVSecond', g.CMOT.CMOT_FLOAT2)], -4, 15,
+                          'Where the web lands on whatever the view ray ends on.', includes=INCLUDES)
+    g.link(world_pos, '', caustic_uv, 'WorldPosition')
+    g.link(camera_vector, '', caustic_uv, 'CameraVector')
+    g.link(scene_depth, '', caustic_uv, 'SceneDepth')
+    g.link(time_param, '', caustic_uv, 'Time')
+    g.link(caustic_scale, '', caustic_uv, 'Scale')
+
+    caustic_texture = g.existing(g.TEX_ROOT + '/T_MobWaterCaustics')
+
+    caustic_a = g.texture_param(mat, 'Caustics', caustic_texture, 'Caustics', -3, 15,
+                                g.ST.SAMPLERTYPE_MASKS, caustic_uv, '',
+                                'The caustic web, as it reaches the eye from under the water.')
+    caustic_b = g.texture_param(mat, 'CausticsSecond', caustic_texture, 'Caustics', -3, 17,
+                                g.ST.SAMPLERTYPE_MASKS, caustic_uv, 'UVSecond',
+                                'The second layer. One alone is a texture sliding over everything.')
+
+    caustics = g.custom(mat, _CODE_UNDERWATER_CAUSTICS, g.CMOT.CMOT_FLOAT1,
+                        ['LayerA', 'LayerB', 'SceneDepth', 'ImmersionDepth', 'FadeDepth', 'Clarity',
+                         'Strength'], [], -2, 16,
+                        'The dappling that reaches this pixel.', includes=INCLUDES)
+    g.link(caustic_a, 'R', caustics, 'LayerA')
+    g.link(caustic_b, 'R', caustics, 'LayerB')
+    g.link(scene_depth, '', caustics, 'SceneDepth')
+    g.link(immersion, '', caustics, 'ImmersionDepth')
+    g.link(caustic_depth, '', caustics, 'FadeDepth')
+    g.link(clarity, '', caustics, 'Clarity')
+    g.link(caustic_strength, '', caustics, 'Strength')
+
+    caustic_amount = g.static_switch(mat, b_caustics, caustics, '', g.const(mat, 0.0, -2, 18), '',
+                                     -1, 16)
+
+    # --- what comes out -----------------------------------------------------
     opacity = g.custom(mat, _CODE_UNDERWATER, g.CMOT.CMOT_FLOAT1,
-                       ['SceneDepth', 'Clarity', 'Submersion'], [], -1, 1,
-                       'How much of what is behind this pixel the water has taken away.',
+                       ['SceneDepth', 'Clarity', 'Submersion', 'Wet', 'Bead', 'Strength'], [],
+                       -1, 1, 'How much of what is behind this pixel the water has taken away.',
                        includes=INCLUDES)
     g.link(scene_depth, '', opacity, 'SceneDepth')
     g.link(clarity, '', opacity, 'Clarity')
     g.link(submersion, '', opacity, 'Submersion')
+    g.link(waterline, '', opacity, 'Wet')
+    g.link(waterline, 'MeniscusBead', opacity, 'Bead')
+    g.link(meniscus_strength, '', opacity, 'Strength')
 
-    g.link_property(mat, absorb, '', g.MP.MP_EMISSIVE_COLOR)
+    colour = g.custom(mat, _CODE_UNDERWATER_COLOR, g.CMOT.CMOT_FLOAT3,
+                      ['AbsorbColor', 'Bead', 'Strength', 'Caustics'], [], -1, 5,
+                      'The water, brightened where the bead is and where the light comes down.',
+                      includes=INCLUDES)
+    g.link(absorb, '', colour, 'AbsorbColor')
+    g.link(waterline, 'MeniscusBead', colour, 'Bead')
+    g.link(meniscus_strength, '', colour, 'Strength')
+    g.link(caustic_amount, '', colour, 'Caustics')
+
+    g.link_property(mat, colour, '', g.MP.MP_EMISSIVE_COLOR)
     g.link_property(mat, opacity, '', g.MP.MP_OPACITY)
 
     g.spread(g.MEL.get_material_expressions(mat))
@@ -1925,6 +2135,21 @@ def build_underwater_material():
     g.save(mat)
 
     return mat
+
+
+def build_underwater_instance(master):
+    """The same plane with the dappling compiled in.
+
+    An instance rather than a second master, because everything but the one switch is shared - and a
+    second master is a second thing to keep in step with the component's data layout.
+    """
+    instance = g.get_or_create_instance(g.MAT_ROOT, UNDERWATER_CAUSTIC_NAME, master)
+
+    g.MEL.set_material_instance_static_switch_parameter_value(instance, 'bCaustics', True)
+    g.MEL.update_material_instance(instance)
+    g.save(instance)
+
+    return instance
 
 
 # ---------------------------------------------------------------------------
@@ -1947,11 +2172,18 @@ float3 Disp = float3(0.0f, 0.0f, 0.0f);
 float3 Nrm = float3(0.0f, 0.0f, 1.0f);
 float Fold = 0.0f;
 
+// Unpacked here as well as in the master, because the packing is the part a test can find fault
+// with: the maths either side of it is checked at every texel, and a slot read the wrong way round
+// would leave the waves correct and every body running at a speed nobody typed.
+float BodyAmplitude;
+float BodySpeed;
+MobWaterUnpackBodyScales(BodyScales, BodyAmplitude, BodySpeed);
+
 MobWaterEvaluate(
 	A0, B0, A1, B1, A2, B2, A3, B3,
 	A4, B4, A5, B5, A6, B6, A7, B7,
 	SampleXY, Time,
-	Scales.y, Scales.z, Scales.w, Scales.x,
+	Scales.y * BodyAmplitude, Scales.z * BodySpeed, Scales.w, Scales.x,
 	Disp, Nrm, Fold);
 
 return Disp / EncodeScale + 0.5f;
@@ -2011,13 +2243,15 @@ def build_parity_probe():
 
     time = g.scalar_param(mat, 'Time', 0.0, 'Probe', -4, 5, 'The instant to evaluate at.')
     encode = g.scalar_param(mat, 'EncodeScale', PARITY_ENCODE_SCALE, 'Probe', -4, 4, '')
+    body = g.scalar_param(mat, 'BodyScales', 100.0, 'Probe', -4, 3,
+                          'A body-s packed amplitude and speed, as the component writes it.')
 
-    inputs += ['SampleXY', 'Time', 'Scales', 'EncodeScale']
+    inputs += ['SampleXY', 'Time', 'Scales', 'EncodeScale', 'BodyScales']
 
     node = g.custom(mat, _CODE_PARITY, g.CMOT.CMOT_FLOAT3, inputs, [], -1, 8,
                     'The wave set, as the GPU sees it.', includes=INCLUDES)
 
-    for name, src in zip(inputs, sources + [sample_xy, time, scales, encode]):
+    for name, src in zip(inputs, sources + [sample_xy, time, scales, encode, body]):
         g.link(src, '', node, name)
 
     g.link_property(mat, node, '', g.MP.MP_EMISSIVE_COLOR)
@@ -2180,6 +2414,9 @@ def build_all():
 
     underwater = build_underwater_material()
     g.log('  underwater %s' % underwater.get_path_name())
+
+    underwater_caustics = build_underwater_instance(underwater)
+    g.log('  underwater %s' % underwater_caustics.get_path_name())
 
     probe = build_parity_probe()
     g.log('  probe %s' % probe.get_path_name())

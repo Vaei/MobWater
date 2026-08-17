@@ -55,4 +55,14 @@ struct MOBWATER_API FMobWaterInfo
 	 */
 	UPROPERTY(BlueprintReadOnly, Category="Water")
 	float Fold = 0.f;
+
+	/**
+	 * How much water an exclusion volume keeps out of here, 0 none and 1 all of it.
+	 *
+	 * Already applied to ImmersionDepth, so nothing has to multiply by it. It is reported because a
+	 * hull that wants to know it is standing in its own well cannot tell that from a body that has
+	 * gone shallow.
+	 */
+	UPROPERTY(BlueprintReadOnly, Category="Water")
+	float Exclusion = 0.f;
 };

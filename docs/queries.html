@@ -21,7 +21,8 @@
 <pre><code>FMobWaterInfo Info;
 if (UMobWaterStatics::GetWaterInfoAtLocation(this, Location, Info))
 {
-    // Info.SurfaceZ, Info.Normal, Info.ImmersionDepth, Info.Depth, Info.FlowVelocity, Info.Fold
+    // Info.SurfaceZ, Info.Normal, Info.ImmersionDepth, Info.Depth, Info.FlowVelocity, Info.Fold,
+    // Info.Exclusion
 }</code></pre>
 
 <div class="tw"><table class="free">
@@ -48,6 +49,7 @@ if (UMobWaterStatics::GetWaterInfoAtLocation(this, Location, Info))
 <tr><td><b>Depth</b></td><td>how deep the water is here - surface to bed, not surface to the point. This is the body's <b>Depth</b> property, answered rather than measured</td></tr>
 <tr><td><b>FlowVelocity</b></td><td>how fast the surface is moving across the ground</td></tr>
 <tr><td><b>Fold</b></td><td>how hard the surface is folding, 0 flat and 1 about to break. The same number crest foam is drawn from, so a splash spawned where this is high lands on a crest that actually looks like it is breaking</td></tr>
+<tr><td><b>Exclusion</b></td><td>how much water an <a href="exclusion.html">exclusion volume</a> keeps out here, 0 none and 1 all of it. Already applied to <b>ImmersionDepth</b>, so nothing has to multiply by it - a point that is fully excluded answers <b>bValid</b> false instead</td></tr>
 </tbody>
 </table></div>
 

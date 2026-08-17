@@ -45,7 +45,6 @@ public:
 	/** The waves a body of this shape falls back to when it carries none of its own. */
 	static class UMobWaterWavePreset* GetDefaultWavePreset(EMobWaterShape Shape);
 
-
 	/**
 	 * Where the wave set and the clock every water material shares are read from.
 	 *
@@ -83,6 +82,16 @@ public:
 	TSoftObjectPtr<UMaterialInterface> UnderwaterMaterial;
 
 	/**
+	 * The same, with the light coming down through the water in it.
+	 *
+	 * A second material rather than a strength on the first, because caustics are two texture reads
+	 * on a quad that covers the screen and a compiler cannot fold away per-instance data however
+	 * small it is. Unset, a plane asked for caustics falls back to the plain one.
+	 */
+	UPROPERTY(EditAnywhere, Config, Category="Underwater")
+	TSoftObjectPtr<UMaterialInterface> UnderwaterCausticMaterial;
+
+	/**
 	 * Whether the local player's camera is given an underwater view of its own.
 	 *
 	 * Off, the component is something a project attaches itself. That is what a game with its own
@@ -95,6 +104,19 @@ public:
 	/** What gets attached. Subclass to change what being under water looks like. */
 	UPROPERTY(EditAnywhere, Config, Category="Underwater", meta=(EditCondition="bAutoUnderwater"))
 	TSoftClassPtr<class UMobWaterUnderwaterComponent> UnderwaterComponent;
+
+	/**
+	 * Where baked mesh outlines are drawn, so the surface can read them back.
+	 *
+	 * A target of its own rather than the ripple field's spare channel, which is not writable: a UI
+	 * domain material reaches its target through emissive, and emissive is three channels.
+	 */
+	UPROPERTY(EditAnywhere, Config, Category="Exclusion")
+	TSoftObjectPtr<class UTextureRenderTarget2D> ExclusionTarget;
+
+	/** What draws them. */
+	UPROPERTY(EditAnywhere, Config, Category="Exclusion")
+	TSoftObjectPtr<UMaterialInterface> ExclusionFieldMaterial;
 
 	/** Whether the ripple field is drawn at all. Off costs nothing and leaves the field flat. */
 	UPROPERTY(EditAnywhere, Config, Category="Ripples")

@@ -520,6 +520,72 @@ float MobWaterUnderwaterOpacity(float SceneDistance, float Clarity, float Submer
 }
 
 /**
+ * How far a pixel of the underwater plane is above the surface, in world units.
+ *
+ * CameraRelative is the pixel's world position with the camera's own subtracted, which keeps every
+ * term small: a large world position squared against a normal loses the answer before it is used.
+ * The surface is taken as the plane through the eye's own column, tilted by the normal the query
+ * returned there - exact to first order, which across a quad held at arm's length is exact.
+ *
+ * This is what makes the waterline a line. Fading the whole screen in over a few centimetres instead
+ * is the same information thrown away: the camera is never wholly in or wholly out at the moment it
+ * matters, and the one thing everybody recognises about that moment is where the line was.
+ */
+float MobWaterWaterline(float3 CameraRelative, float3 SurfaceNormal, float ImmersionDepth)
+{
+	const float3 N = normalize(SurfaceNormal);
+
+	// The eye is ImmersionDepth below the plane, so the plane is that far up the normal from it.
+	return dot(CameraRelative, N) - ImmersionDepth * N.z;
+}
+
+/**
+ * The waterline split into the water below it and the bead sitting on it.
+ *
+ * Wet runs 1 below the line to 0 above it; Bead peaks on the line itself. Both come off the same
+ * distance so they cannot drift apart, and the bead is smoothstepped because a linear one has a
+ * crease down the middle of the brightest part of the effect.
+ */
+void MobWaterMeniscus(float Distance, float Thickness, out float Wet, out float Bead)
+{
+	const float T = max(Thickness, 0.01f);
+
+	Wet = 1.0f - smoothstep(-T, T, Distance);
+
+	const float Edge = 1.0f - saturate(abs(Distance) / T);
+	Bead = Edge * Edge * (3.0f - 2.0f * Edge);
+}
+
+/**
+ * The light coming down through the water, as it reaches the eye from under it.
+ *
+ * The same two layers the surface throws onto its bed, read where the view ray ends rather than
+ * where the water does. It is added to the water's own colour rather than to what is behind it,
+ * which is the only place a translucent pass can put it - and it is also the honest one: what is
+ * being seen from down here is the web scattering in the column, not a pattern painted on a wall.
+ *
+ * Faded twice. Once by how deep the eye is, because caustics are focused light and focus is the
+ * first thing a column takes; once by how far off the thing being looked at is, because at the far
+ * end of the clarity the water has already absorbed everything and dappling it would be light
+ * arriving from behind a wall of its own colour.
+ */
+float MobWaterUnderwaterCaustics(float LayerA, float LayerB, float SceneDistance, float EyeDepth,
+	float FadeDepth, float Clarity, float Strength)
+{
+	if (Strength <= 0.0f)
+	{
+		return 0.0f;
+	}
+
+	const float Web = min(LayerA, LayerB);
+
+	const float Shallow = 1.0f - saturate(EyeDepth / max(FadeDepth, 1.0f));
+	const float Near = 1.0f - saturate(SceneDistance / max(Clarity, 1.0f));
+
+	return Web * Shallow * Near * Strength;
+}
+
+/**
  * Foam on the crests, from how hard the surface is folding.
  *
  * The same term the wave normal is built from, so it lands on the crest rather than near it. A still

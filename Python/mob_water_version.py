@@ -55,11 +55,13 @@ GENERATOR_SOURCES = (
 REQUIRED = (
     '/MobWater/Materials/M_MobWater',
     '/MobWater/Materials/M_MobWaterUnderwater',
+    '/MobWater/Materials/MI_MobWaterUnderwater_Caustics',
     '/MobWater/Materials/M_MobWaterParity',
     '/MobWater/Materials/M_MobWaterSpectrumParity',
     '/MobWater/Materials/M_MobWaterRippleStep',
     '/MobWater/Materials/M_MobWaterRippleCopy',
     '/MobWater/Materials/M_MobWaterRippleStamp',
+    '/MobWater/Materials/M_MobWaterExclusionField',
     '/MobWater/Materials/MPC_MobWater',
     '/MobWater/Gradients/GA_MobWater',
     '/MobWater/Spectra/SP_MobWater_Ocean',

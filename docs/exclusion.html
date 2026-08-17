@@ -39,7 +39,7 @@
 <tr><td><b>Sphere</b></td><td>a circle that falls off towards its rim rather than holding its strength to the edge</td></tr>
 <tr><td><b>Box</b></td><td>a rectangle, rotated with the component</td></tr>
 <tr><td><b>Rect</b></td><td>a rectangle with a harder edge</td></tr>
-<tr><td><b>Mesh</b></td><td><b>not implemented.</b> It behaves as its bounding rectangle and says so once in the log rather than quietly doing something else</td></tr>
+<tr><td><b>Mesh</b></td><td>the mesh's own plan view. It takes the <a href="#outlines">other route</a> - baked to a mask and carried by the ripple field - because no pair of numbers describes a hull</td></tr>
 </tbody>
 </table></div>
 
@@ -51,7 +51,8 @@
 <thead><tr><th>Property</th><th>Default</th><th></th></tr></thead>
 <tbody>
 <tr><td><b>Shape</b></td><td>Box</td><td></td></tr>
-<tr><td><b>Extent</b></td><td>200, 400 cm</td><td>half the size. A disc or sphere uses X as its radius</td></tr>
+<tr><td><b>Extent</b></td><td>200, 400 cm</td><td>half the size. A disc or sphere uses X as its radius. A mesh takes its own, from the outline it was baked from</td></tr>
+<tr><td><b>Exclusion Mesh</b></td><td>unset</td><td>the outline to cut, when the shape is a mesh. Unset, the first static mesh on the actor is used - which is what a hull with an exclusion component dropped on it wants</td></tr>
 <tr><td><b>Strength</b></td><td>1.0</td><td>how much water it removes. 1 takes it away entirely; less thins it rather than clearing it, which is what a half-submerged grating wants</td></tr>
 <tr><td><b>Edge Softness</b></td><td>20 cm</td><td>how far in from the edge the water fades out rather than stopping</td></tr>
 <tr><td><b>Blocks Submersion</b></td><td>on</td><td>whether it also stops things being counted as submerged inside it</td></tr>
@@ -72,6 +73,26 @@ Being a plan view, an exclusion has no top and no bottom. Water is kept out of a
 
 <p>This is inherent: the surface is a plane, the mask is a plan view, and giving it a height would mean either a volume texture or a per-pixel test against arbitrary geometry. Neither is affordable here.</p>
 
+<h2 id="outlines">Cutting with a mesh</h2>
+
+<p>A hull's plan view is not a rectangle and never was. Set <b>Shape</b> to <b>Mesh</b> and the outline is rasterised once, in the editor, into a small mask stored on the component - so a cooked build never reads a vertex buffer and never needs <b>Allow CPUAccess</b> on the mesh.</p>
+
+<div data-shot="exclusion.mesh"></div>
+
+<p>What the mask holds is <b>distance inside the outline</b>, not coverage. That is what lets <b>Edge Softness</b> mean the same centimetres it means on a box: coverage alone is one bit a texel, and the only edge it could make is however wide one texel happens to be - which changes with the size of the mesh.</p>
+
+<p>The outline is in the mesh's own space, so the exclusion component has to sit where the mesh sits. On an actor whose root is the mesh, that is where it lands by default.</p>
+
+<div class="warn">
+A mesh outline rides the <a href="ripples.html">ripple field</a>'s spare channel, so it reaches the surface only on a body that <b>reads the field</b>. A body with <b>Ripples</b> off gets the four analytic slots and nothing else. It also reaches only as far as the field does, and fades at its border like everything else in there.
+</div>
+
+<div class="note">
+It costs the water nothing to read. The ripple tap already fetches all four channels and only used three of them.
+</div>
+
+<p>Four outlines are carried at once, largest first, and only ones that actually overlap the field are considered for a slot. They do not compete with the four analytic slots - a mesh never takes one, because carving its bounding rectangle out from under the shape it just cut would undo the whole point.</p>
+
 <h2>Moving volumes</h2>
 
 <p>An exclusion attached to a moving actor is republished every frame, so a boat carries its hole with it with no smearing and no lag - the values are read by arithmetic in the pixel shader, not resampled from a texture that was drawn last frame.</p>
@@ -84,8 +105,12 @@ Being a plan view, an exclusion has no top and no bottom. Water is kept out of a
 
 <p>0 is none and 1 is all of it, answered from every registered volume with <b>Blocks Submersion</b> on - the ones that only carve the surface are not in this answer, because nothing has been excluded from the water there, only from the picture of it.</p>
 
-<div class="warn">
-<code>GetWaterInfoAtLocation</code> does <b>not</b> subtract exclusion. It answers where the surface is, and a point inside a hull still has a surface above it. Anything that cares - an immersion check, a swim state, a buoyancy point - has to ask this as well and decide what an excluded point means to it.
+<p>You rarely need to call it. <code>GetWaterInfoAtLocation</code> subtracts exclusion itself: a fully excluded point answers <b>false</b>, and a partly excluded one comes back with its <b>ImmersionDepth</b> scaled by what is left. Scaled rather than switched, because <b>Strength</b> below one is a grating rather than a hull - it thins the water instead of clearing it, and half the water is half the lift.</p>
+
+<p>The amount is reported as <code>Info.Exclusion</code> as well, because a hull that wants to know it is standing in its own well cannot tell that from a body that has gone shallow.</p>
+
+<div class="note">
+Only volumes with <b>Blocks Submersion</b> on reach the query. One that merely carves the surface has excluded nothing from the water, only from the picture of it.
 </div>
 
 <p><a class="cta" href="underwater.html">Now the view from below &rarr;</a></p>

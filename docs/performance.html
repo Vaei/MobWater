@@ -35,15 +35,19 @@ None of the numbers below is the real cost. Water is a translucent plane and the
 <div class="tw"><table>
 <thead><tr><th></th><th>Vertex</th><th>Pixel</th><th>Samplers</th><th>Interpolators</th></tr></thead>
 <tbody>
-<tr><td><code>M_MobWater</code></td><td>926</td><td>1189</td><td>6</td><td>4</td></tr>
-<tr><td><code>M_MobWaterUnderwater</code></td><td>250</td><td>143</td><td>2</td><td>0</td></tr>
+<tr><td><code>M_MobWater</code></td><td>937</td><td>1203</td><td>7</td><td>4</td></tr>
+<tr><td><code>M_MobWaterUnderwater</code></td><td>250</td><td>168</td><td>2</td><td>0</td></tr>
+<tr><td><code>MI_MobWaterUnderwater_Caustics</code></td><td>250</td><td>197</td><td>3</td><td>0</td></tr>
 <tr><td><code>M_MobWaterRippleStep</code></td><td>24</td><td>83</td><td>2</td><td>0</td></tr>
 <tr><td><code>M_MobWaterRippleCopy</code></td><td>24</td><td>26</td><td>2</td><td>0</td></tr>
 <tr><td><code>M_MobWaterRippleStamp</code></td><td>24</td><td>133</td><td>2</td><td>0</td></tr>
+<tr><td><code>M_MobWaterExclusionField</code></td><td>24</td><td>125</td><td>5</td><td>0</td></tr>
 </tbody>
 </table></div>
 
-<p>Six samplers for six texture reads' worth of work, because every tap is <code>Shared:Wrap</code>. The ripple materials are drawn twice per step over a 256&sup2; target between them, which is 65k pixels of an 83-instruction shader - a rounding error beside one body of water on screen. The step reads nine neighbours rather than five because a five point Laplacian carries a wave faster along the grid axes than across its diagonals, and a ring that travels far enough turns into a square.</p>
+<p>Seven samplers for seven texture reads' worth of work, because every tap on the surface is <code>Shared:Wrap</code> or <code>Shared:Clamp</code>. The ripple materials are drawn twice per step over a 256&sup2; target between them, which is 65k pixels of an 83-instruction shader - a rounding error beside one body of water on screen. The step reads nine neighbours rather than five because a five point Laplacian carries a wave faster along the grid axes than across its diagonals, and a ring that travels far enough turns into a square.</p>
+
+<p><code>M_MobWaterExclusionField</code> is drawn over the same 256&sup2; only while a level actually has a baked mesh outline in it, which most do not - and when the last one goes it is cleared once rather than redrawn empty. Its five samplers are four outline masks and their coordinates; the surface reads the result back through one shared-clamp tap.</p>
 
 <div class="note">
 The vertex count is high because the wave sum happens there: eight Gerstner waves, unrolled, plus the shore attenuation. It is paid per vertex of the surface mesh, so a lake's <b>Grid Resolution</b> and a river's <b>Segments Along</b> are vertex-shader settings as much as they are silhouette ones.

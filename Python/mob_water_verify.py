@@ -43,6 +43,24 @@ TYPES = os.path.join(PLUGIN_ROOT, 'Source', 'MobWater', 'Public', 'MobWaterTypes
 SPECTRUM_HEADER = os.path.join(PLUGIN_ROOT, 'Source', 'MobWater', 'Public', 'MobWaterSpectrum.h')
 SPECTRUM_SHADER = os.path.join(PLUGIN_ROOT, 'Shaders', 'Public', 'MobWaterSpectrum.ush')
 
+UNDERWATER = os.path.join(PLUGIN_ROOT, 'Source', 'MobWater', 'Private', 'MobWaterUnderwaterComponent.cpp')
+GENERATOR = os.path.join(PLUGIN_ROOT, 'Python', 'author_water.py')
+
+# The underwater plane's own layout, which is small and has nothing to do with a body of water's.
+# Named here rather than derived, so a rename on either side fails by name instead of by silence.
+EXPECTED_UNDERWATER = {
+    'AbsorbColor': 'UW_ABSORB_COLOR',
+    'Clarity': 'UW_CLARITY',
+    'Submersion': 'UW_SUBMERSION',
+    'SurfaceNormal': 'UW_SURFACE_NORMAL',
+    'ImmersionDepth': 'UW_IMMERSION_DEPTH',
+    'MeniscusThickness': 'UW_MENISCUS_THICKNESS',
+    'MeniscusStrength': 'UW_MENISCUS_STRENGTH',
+    'CausticStrength': 'UW_CAUSTIC_STRENGTH',
+    'CausticScale': 'UW_CAUSTIC_SCALE',
+    'CausticDepth': 'UW_CAUSTIC_DEPTH',
+}
+
 
 # The custom primitive data layout, as the README and the generator both understand it.
 #
@@ -59,6 +77,9 @@ EXPECTED_INDICES = {
     'ShoreFoamDepth': 8,
     'CrestFoamThreshold': 9,
     'WaveAmplitude': 10,
+    # The same float again. The amplitude is the whole part in hundredths and the speed is the
+    # fraction, which the primitive data being full at thirty six is the reason for.
+    'WaveSpeed': 10,
     'ShoreFadeDistance': 11,
     'RefractionStrength': 12,
     'RippleStrength': 13,
@@ -133,6 +154,9 @@ def check_constants():
         ('Gravity', 'Gravity', 'MOB_WATER_GRAVITY', header, shader),
         ('MaxWaves', 'MaxWaves', 'MOB_WATER_MAX_WAVES', header, shader),
         ('MaxSteepness', 'MaxSteepness', 'MOB_WATER_MAX_STEEPNESS', header, shader),
+        # What a body's packed wave fraction is measured in. Off, the amplitude still reads right
+        # and every body runs at a speed nobody set, which reads as the wave preset being wrong.
+        ('SpeedRange', 'SpeedRange', 'MOB_WATER_SPEED_RANGE', header, shader),
         # Off by one and every tile boundary in the ocean carries a band of water from the wrong
         # frame, which is one texel wide and therefore looks like a compression artefact.
         ('Gutter', 'Gutter', 'MOB_WATER_SPECTRUM_GUTTER', spectrum_header, spectrum_shader),
@@ -187,6 +211,36 @@ def check_cpd_indices():
     return failures
 
 
+def check_underwater_indices():
+    """The plane's data layout, as the component writes it and the generator reads it.
+
+    Its own layout rather than MobWaterData, because the plane is not a body of water and shares
+    almost nothing with one - and because it is the one place a wrong index shows as nothing at all:
+    an underwater view that never comes on looks exactly like a camera that never went under.
+    """
+    component = _read(UNDERWATER)
+    generator = _read(GENERATOR)
+
+    failures = []
+    for name, constant in sorted(EXPECTED_UNDERWATER.items(), key=lambda pair: pair[0]):
+        cpp = _cpp_constant(component, name)
+
+        match = re.search(r'^' + constant + r'\s*=\s*(\d+)\s*$', generator, re.MULTILINE)
+        python = int(match.group(1)) if match else None
+
+        if cpp is None:
+            failures.append('MobUnderwaterData::{0} is gone.'.format(name))
+        elif python is None:
+            failures.append('{0} is gone from author_water.'.format(constant))
+        elif int(cpp) != python:
+            failures.append('MobUnderwaterData::{0} is {1} and {2} is {3}, so the plane writes one '
+                            'thing and reads another.'.format(name, int(cpp), constant, python))
+        else:
+            _log('  ok  MobUnderwaterData::{0} = {1}'.format(name, int(cpp)))
+
+    return failures
+
+
 PROBE_PATH = '/MobWater/Materials/M_MobWaterParity'
 PRESET_PATH = '/MobWater/Waves/WP_MobWater_Ocean'
 
@@ -204,6 +258,35 @@ PROBE_TIMES = [0.0, 3.7, 91.3]
 # million of the amplitude rather than exactly. An ocean crest is 85cm; a tenth of a millimetre is
 # far tighter than anything that could hide a real difference in the maths.
 PROBE_TOLERANCE = 0.01
+
+# The body scales to run the whole comparison at, as (amplitude, speed).
+#
+# One pair for a body that set neither, and one that sets both to something no quantisation lands on
+# by luck. The two share a data slot, so the second pair is the only thing that tells a packing read
+# the wrong way round from one read the right way - the waves either side of it are correct in both
+# cases, and every body simply runs at a height and a speed nobody typed.
+PROBE_BODY_SCALES = [(1.0, 1.0), (0.37, 0.62)]
+
+
+def _scaled_preset(preset, amplitude, speed):
+    """The same wave set with a body's own scales already in it.
+
+    Built fresh rather than by editing the asset's copy, because a struct read out of an asset can
+    write back through and a verify pass has no business dirtying the preset it is checking.
+    """
+    source = preset.get_editor_property('waves')
+
+    params = unreal.MobWaterWaveParams()
+    params.set_editor_property('waves', list(source.get_editor_property('waves')))
+    params.set_editor_property('amplitude_scale',
+                              source.get_editor_property('amplitude_scale') * amplitude)
+    params.set_editor_property('speed_scale', source.get_editor_property('speed_scale') * speed)
+    params.set_editor_property('choppiness_scale', source.get_editor_property('choppiness_scale'))
+
+    scaled = unreal.new_object(unreal.MobWaterWavePreset)
+    scaled.set_editor_property('waves', params)
+
+    return scaled
 
 
 def check_wave_parity():
@@ -289,51 +372,62 @@ def check_wave_parity():
     moved = False
     drew = False
 
-    for time in PROBE_TIMES:
-        material.set_scalar_parameter_value('Time', time)
+    for wanted_amplitude, wanted_speed in PROBE_BODY_SCALES:
+        # Through the pack and back out, because that is all the shader ever sees. Comparing against
+        # what was asked for would fail on the quantisation rather than on the maths.
+        packed = unreal.MobWaterStatics.pack_body_wave_scales(wanted_amplitude, wanted_speed)
+        amplitude, speed = unreal.MobWaterStatics.unpack_body_wave_scales(packed)
 
-        unreal.RenderingLibrary.draw_material_to_render_target(world, target, material)
+        material.set_scalar_parameter_value('BodyScales', packed)
+        scaled = _scaled_preset(preset, amplitude, speed)
 
-        for ty in range(PROBE_SIZE):
-            for tx in range(PROBE_SIZE):
-                pixel = unreal.RenderingLibrary.read_render_target_raw_pixel(world, target, tx, ty)
+        for time in PROBE_TIMES:
+            material.set_scalar_parameter_value('Time', time)
 
-                # An untouched target is exactly zero, which is not a value the probe can write:
-                # everything it writes is biased into the positive half around 0.5.
-                if pixel.r != 0.0 or pixel.g != 0.0 or pixel.b != 0.0:
-                    drew = True
+            unreal.RenderingLibrary.draw_material_to_render_target(world, target, material)
 
-                gpu = unreal.Vector(
-                    (pixel.r - 0.5) * PROBE_ENCODE_SCALE,
-                    (pixel.g - 0.5) * PROBE_ENCODE_SCALE,
-                    (pixel.b - 0.5) * PROBE_ENCODE_SCALE)
+            for ty in range(PROBE_SIZE):
+                for tx in range(PROBE_SIZE):
+                    pixel = unreal.RenderingLibrary.read_render_target_raw_pixel(world, target, tx, ty)
 
-                # The same place the shader thinks this texel is: texel centres, not corners.
-                u = (tx + 0.5) / PROBE_SIZE
-                v = (ty + 0.5) / PROBE_SIZE
+                    # An untouched target is exactly zero, which is not a value the probe can write:
+                    # everything it writes is biased into the positive half around 0.5.
+                    if pixel.r != 0.0 or pixel.g != 0.0 or pixel.b != 0.0:
+                        drew = True
 
-                sample = unreal.Vector2D(
-                    PROBE_ORIGIN[0] + (u - 0.5) * PROBE_EXTENT,
-                    PROBE_ORIGIN[1] + (v - 0.5) * PROBE_EXTENT)
+                    gpu = unreal.Vector(
+                        (pixel.r - 0.5) * PROBE_ENCODE_SCALE,
+                        (pixel.g - 0.5) * PROBE_ENCODE_SCALE,
+                        (pixel.b - 0.5) * PROBE_ENCODE_SCALE)
 
-                cpu, _normal, _fold = unreal.MobWaterStatics.evaluate_wave_preset(preset, sample, time)
+                    # The same place the shader thinks this texel is: texel centres, not corners.
+                    u = (tx + 0.5) / PROBE_SIZE
+                    v = (ty + 0.5) / PROBE_SIZE
 
-                delta = max(abs(cpu.x - gpu.x), abs(cpu.y - gpu.y), abs(cpu.z - gpu.z))
-                worst = max(worst, delta)
-                compared += 1
+                    sample = unreal.Vector2D(
+                        PROBE_ORIGIN[0] + (u - 0.5) * PROBE_EXTENT,
+                        PROBE_ORIGIN[1] + (v - 0.5) * PROBE_EXTENT)
 
-                if abs(cpu.z) > 1e-3:
-                    moved = True
+                    cpu, _normal, _fold = unreal.MobWaterStatics.evaluate_wave_preset(
+                        scaled, sample, time)
 
-                if not drew:
-                    continue
+                    delta = max(abs(cpu.x - gpu.x), abs(cpu.y - gpu.y), abs(cpu.z - gpu.z))
+                    worst = max(worst, delta)
+                    compared += 1
 
-                if delta > PROBE_TOLERANCE and len(failures) < 4:
-                    failures.append(
-                        'wave parity at ({0:.0f}, {1:.0f}) t={2}: CPU ({3:.4f}, {4:.4f}, {5:.4f}) '
-                        'GPU ({6:.4f}, {7:.4f}, {8:.4f}), off by {9:.4f}cm. MobWaterWaves.h and '
-                        'MobWaterWaves.ush have parted.'
-                        .format(sample.x, sample.y, time, cpu.x, cpu.y, cpu.z, gpu.x, gpu.y, gpu.z, delta))
+                    if abs(cpu.z) > 1e-3:
+                        moved = True
+
+                    if not drew:
+                        continue
+
+                    if delta > PROBE_TOLERANCE and len(failures) < 4:
+                        failures.append(
+                            'wave parity at ({0:.0f}, {1:.0f}) t={2} at amplitude {3} speed {4}: '
+                            'CPU ({5:.4f}, {6:.4f}, {7:.4f}) GPU ({8:.4f}, {9:.4f}, {10:.4f}), off '
+                            'by {11:.4f}cm. MobWaterWaves.h and MobWaterWaves.ush have parted.'
+                            .format(sample.x, sample.y, time, amplitude, speed,
+                                    cpu.x, cpu.y, cpu.z, gpu.x, gpu.y, gpu.z, delta))
 
     if not drew:
         return ['the probe material drew nothing - every texel came back as an untouched zero, '
@@ -349,8 +443,8 @@ def check_wave_parity():
                         'nothing. Check that %s has waves in it.' % PRESET_PATH)
 
     if not failures:
-        _log('  ok  {0} points across {1} instants, worst disagreement {2:.5f}cm'
-             .format(compared, len(PROBE_TIMES), worst))
+        _log('  ok  {0} points across {1} instants and {2} body scales, worst disagreement '
+             '{3:.5f}cm'.format(compared, len(PROBE_TIMES), len(PROBE_BODY_SCALES), worst))
 
     return failures
 
@@ -507,6 +601,9 @@ def run():
 
     _log(' custom primitive data indices')
     failures += check_cpd_indices()
+
+    _log(' the underwater plane-s own data layout')
+    failures += check_underwater_indices()
 
     _log(' numeric CPU and GPU wave parity')
     if unreal:

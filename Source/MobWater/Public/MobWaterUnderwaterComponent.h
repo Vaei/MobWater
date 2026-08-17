@@ -64,10 +64,56 @@ public:
 	 * How far below the surface before it is fully underwater, in world units.
 	 *
 	 * Crossing the surface instantly is what makes a camera at the waterline flicker between two
-	 * completely different images every frame it bobs.
+	 * completely different images every frame it bobs. The waterline itself is drawn geometrically,
+	 * so this is only the short fade that brings the plane in at all.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Underwater", meta=(ClampMin="0.1", ForceUnits="cm"))
 	float CrossFadeDepth = 12.f;
+
+	/**
+	 * How tall the band of water clinging to the lens is, in world units.
+	 *
+	 * The waterline is where the surface plane crosses the quad, so it is a real line across the
+	 * view that tilts as a swell passes rather than a fade over the whole screen. This is the only
+	 * part of it that is not geometry: how far either side of that line the water is neither clearly
+	 * above nor clearly below.
+	 *
+	 * Without it the two halves meet at a hard cut, which reads as a rendering seam rather than as a
+	 * surface - the one thing everybody recognises about a camera at the waterline is the bead.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Meniscus", meta=(ClampMin="0.1", ForceUnits="cm"))
+	float MeniscusThickness = 2.5f;
+
+	/** How much denser and brighter the bead is than the water behind it. 0 leaves a plain cut. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Meniscus", meta=(ClampMin="0.0", ClampMax="2.0"))
+	float MeniscusStrength = 1.f;
+
+	/**
+	 * Light dappling down through the water, seen from under it.
+	 *
+	 * A compiled permutation rather than a strength of zero, because it is two texture reads on a
+	 * quad that covers the screen - which is the most expensive place in this renderer to carry
+	 * something nobody asked for.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Caustics")
+	bool bCaustics = true;
+
+	/** How bright the dappling is. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Caustics", meta=(EditCondition="bCaustics", ClampMin="0.0"))
+	float CausticStrength = 0.6f;
+
+	/** The world size the caustic web tiles over, in world units. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Caustics", meta=(EditCondition="bCaustics", ClampMin="1.0", ForceUnits="cm"))
+	float CausticScale = 400.f;
+
+	/**
+	 * How far down the dappling is lost, in world units.
+	 *
+	 * Caustics are focused light and focus is lost with depth, so this is what stops a trench at
+	 * thirty metres being as dappled as a metre of shallows.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Caustics", meta=(EditCondition="bCaustics", ClampMin="1.0", ForceUnits="cm"))
+	float CausticDepth = 800.f;
 
 	UPROPERTY(BlueprintAssignable, Category="Underwater")
 	FMobWaterSubmerged OnSubmergedChanged;
@@ -81,6 +127,9 @@ public:
 
 protected:
 	void ApplyPlacement();
+
+	/** Picks the plain plane or the one that carries caustics, which are separate permutations. */
+	void ApplyMaterial();
 
 	bool bSubmerged = false;
 	float Submersion = 0.f;

@@ -182,13 +182,25 @@ Run headlessly, the version check reports six assets missing that plainly exist.
 </tbody>
 </table></div>
 
+<h2>Two values in one data slot</h2>
+
+<p>The custom primitive data is full at the engine's thirty six floats, so four pairs share a slot: foam noise with the foam texture amount, the edge line width with the foam opacity, the band count with the band gap, and a body's <b>wave amplitude with its wave speed</b>. In each the whole part is one value quantised to hundredths and the fraction is the other, held under one so the first still floors out of it.</p>
+
+<p>The wave pair is the one with a query on the other side of it, so it has a rule the others do not: <b>the CPU packs and unpacks the same float the shader reads</b> rather than using the properties directly. Reading the raw values there would answer a surface a fraction away from the one being drawn, which is exactly the disagreement the parity probe exists to catch - and the probe now runs its whole comparison twice, once at unit scales and once at scales no quantisation lands on by luck.</p>
+
+<h2>A render target's alpha is not writable</h2>
+
+<div class="warn">
+Every one of these targets is written by a <b>UI domain</b> material, because that is what <code>DrawMaterialToRenderTarget</code> renders - and a UI material reaches its target through <b>emissive</b>, which is three channels. Whatever the fourth is set to is discarded on the way out, silently, and the target reads zero.
+</div>
+
+<p>The ripple field's alpha was reserved for mesh exclusion on that assumption and could never have carried it. Baked outlines have a small target of their own instead, which turns out to be the better answer anyway: a body reads outlines whether or not it reads ripples, and a still pool with a hull in it is exactly the case that would otherwise have lost its hole.</p>
+
 <h2>What is not built</h2>
 
 <div class="tw"><table class="free">
 <tbody>
-<tr><td><b>The meniscus and underwater caustics</b></td><td>see <a href="underwater.html">Underwater</a></td></tr>
-<tr><td><b>Mesh exclusion</b></td><td>behaves as its bounding rectangle, and says so once</td></tr>
-<tr><td><b>Exclusion in the CPU query</b></td><td>a point inside a hull still has a surface above it</td></tr>
+<tr><td><b>Snell's window</b></td><td>looking up from deep water does not compress the world above into a bright disc. That needs the world above refracted through the surface as seen from below, which is a second view</td></tr>
 <tr><td><b>Waterfalls</b></td><td>a vertical sheet has no plan view, no shore distance and nowhere for the field to reach, so it is its own component and its own master rather than a fifth shape</td></tr>
 <tr><td><b>Per-shape icons</b></td><td><code>Resources/Icon*.png</code> is still MobLights' art</td></tr>
 </tbody>
