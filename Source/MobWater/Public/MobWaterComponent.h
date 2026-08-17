@@ -89,9 +89,28 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Waves")
 	TObjectPtr<UMobWaterWavePreset> WavePreset;
 
-	/** Scales this body's waves on top of the set it shares with everything else. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Waves", meta=(ClampMin="0.0"))
+	/**
+	 * Scales this body's waves on top of the set it shares with everything else.
+	 *
+	 * Quantised to a hundredth: it shares a data slot with WaveSpeed, which the primitive data being
+	 * full at thirty six is the reason for.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Waves", meta=(ClampMin="0.0", ClampMax="10.0"))
 	float WaveAmplitude = 1.f;
+
+	/**
+	 * Scales how fast this body's waves travel, on top of the set's own speed.
+	 *
+	 * Amplitude and speed together are what let one authored set serve a harbour and the open sea it
+	 * opens onto: the same waves at a third the height and half the speed, rather than two sets that
+	 * drift apart as one is tuned.
+	 *
+	 * The baked sea is not scaled by this. Its frequencies are quantised to whole turns over the
+	 * loop, which is the only reason it loops at all, and a body running it faster would be running
+	 * a sea that no longer meets itself.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Waves", meta=(ClampMin="0.0", ClampMax="5.0"))
+	float WaveSpeed = 1.f;
 
 	/**
 	 * A sea state solved offline, added on top of the wave preset.
@@ -259,8 +278,11 @@ public:
 	 *
 	 * A compiled permutation, so a body with plain foam pays for neither the sample nor its
 	 * coordinates.
+	 *
+	 * ScriptName because Python drops the leading b and would then have two properties called
+	 * foam_texture on this class, which it warns about on every editor boot.
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Foam", meta=(EditCondition="bFoam"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Foam", meta=(EditCondition="bFoam", ScriptName="bFoamTexture"))
 	bool bFoamTexture = false;
 
 	/**
