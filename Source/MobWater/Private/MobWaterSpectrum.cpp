@@ -209,7 +209,9 @@ namespace MobWaterCombined
 			Out.Normal.X + Baked.Normal.X,
 			Out.Normal.Y + Baked.Normal.Y,
 			FMath::Max(Out.Normal.Z * Baked.Normal.Z, 1e-4f)).GetSafeNormal();
-		Out.Fold = FMath::Clamp(Out.Fold + Baked.Fold, 0.f, 1.f);
+		// The larger of the two, not their sum. Both measure the same thing, and adding them would move
+		// what Crest Foam Threshold means the moment a body was given a sea state.
+		Out.Fold = FMath::Clamp(FMath::Max(Out.Fold, Baked.Fold), 0.f, 1.f);
 
 		return Out;
 	}

@@ -1027,11 +1027,12 @@ def build_master_material():
 
     # --- foam ---------------------------------------------------------------
     #
-    # Both folds, added and held at one. The baked sea reports where its own transform compressed the
-    # surface, which is where open water actually breaks white - and that is a different place from
-    # where a Gerstner crest is steep, so a sum rather than a maximum.
-    folded = g.saturate_expr(mat, g.add(mat, waves, 'WaveFold', spectrum_disp, 'SpectrumFold', 0, 7),
-                             '', 0, 8)
+    # Whichever of the two folds is larger, not their sum. Both answer the same question - how hard is
+    # the surface folding here - so adding them double counts wherever both do, and, worse, it moves
+    # the meaning of Crest Foam Threshold: a body tuned without a baked sea would foam everywhere the
+    # moment one was assigned. A maximum leaves an authored threshold meaning what it did.
+    folded = g.binary(mat, unreal.MaterialExpressionMax, waves, 'WaveFold',
+                      spectrum_disp, 'SpectrumFold', 0, 7)
     fold_source = g.static_switch(mat, b_spectrum, folded, '', waves, 'WaveFold', 0, 9)
 
     fold = g.vertex_interpolator(mat, fold_source, '', 1, 7)

@@ -59,6 +59,15 @@ public:
 	UFUNCTION(BlueprintCallable, CallInEditor, Category="Water")
 	void ApplyLookPreset();
 
+	/**
+	 * Copies this body's look back out into a preset.
+	 *
+	 * The exact reverse of ApplyLookPreset, and written directly beneath it for that reason: the two
+	 * are one list of properties written twice, and a value added to one and forgotten in the other
+	 * is a look that saves and does not come back.
+	 */
+	void CaptureLookPreset(class UMobWaterLookPreset* Preset) const;
+
 	/** Half the body's size on X and Y, in world units. The mesh is unit sized and scaled to this. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Water", meta=(ForceUnits="cm"))
 	FVector2D Extent = FVector2D(500.0, 500.0);
@@ -445,10 +454,12 @@ public:
 	const FMobWaterWaveParams& GetWaveParams() const;
 
 	/**
-	 * The sea state this body reads, which is its own or the settings' fallback.
+	 * The sea state this body reads, or null.
 	 *
-	 * Null for anything but an ocean. A baked field is a tiling continuum with no edge in it, so it
-	 * has nothing to say about a body that has one.
+	 * Null for anything but an ocean, and null for an ocean that has not been given one. Opt in, and
+	 * deliberately: a body already placed and tuned must not gain a feature because one was baked,
+	 * and the baked field's own folding feeds the crest foam - so switching it on is a look change,
+	 * not a detail.
 	 */
 	UFUNCTION(BlueprintPure, Category="Waves")
 	UMobWaterSpectrum* GetSpectrum() const;

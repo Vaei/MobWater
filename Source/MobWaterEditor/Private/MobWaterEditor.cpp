@@ -14,6 +14,7 @@
 #include "MobWaterDisturbanceComponent.h"
 #include "MobWaterInteractionComponent.h"
 #include "MobWaterSplineComponent.h"
+#include "MobWaterLookPreset.h"
 #include "MobWaterMeshLibrary.h"
 #include "MobWaterOceanActor.h"
 #include "MobWaterPoolActor.h"
@@ -43,6 +44,9 @@
 #include "Materials/MaterialParameterCollection.h"
 #include "Misc/Paths.h"
 #include "PropertyEditorModule.h"
+#include "ContentBrowserModule.h"
+#include "IContentBrowserSingleton.h"
+#include "UObject/SavePackage.h"
 #include "Styling/AppStyle.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "ToolMenus.h"
@@ -469,6 +473,17 @@ TSharedRef<SWidget> FMobWaterEditorModule::BuildMenu()
 			FCanExecuteAction::CreateStatic(&FMobWaterEditorModule::HasSelectedBody)));
 
 	Menu.AddMenuEntry(
+		LOCTEXT("SaveLookPreset", "Save Look Preset From Selected"),
+		LOCTEXT("SaveLookPresetTip",
+			"Writes the selected body's colour, foam, glint, caustics and reflection out as a look "
+			"preset asset, and points the body at it. Choose where it goes - a look belongs to the "
+			"project that tuned it, and one saved inside MobWater is one a regenerate may overwrite."),
+		FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("Icons.SaveModified")),
+		FUIAction(
+			FExecuteAction::CreateStatic(&FMobWaterEditorModule::SaveLookPreset),
+			FCanExecuteAction::CreateStatic(&FMobWaterEditorModule::HasSelectedBody)));
+
+	Menu.AddMenuEntry(
 		LOCTEXT("SelectOcean", "Select Ocean"),
 		LOCTEXT("SelectOceanTip",
 			"Selects the level's ocean. It follows the view and has no bank, so there is rarely "
@@ -766,6 +781,96 @@ bool FMobWaterEditorModule::HasOcean()
 {
 	UWorld* World = EditorWorld();
 	return World && TActorIterator<AMobWaterOcean>(World);
+}
+
+void FMobWaterEditorModule::SaveLookPreset()
+{
+	UMobWaterComponent* Water = SelectedWaterComponent();
+	if (!Water)
+	{
+		Notify(LOCTEXT("NoBodyToSave", "MobWater: select a body of water first."), false);
+		return;
+	}
+
+	FSaveAssetDialogConfig Config;
+	Config.DialogTitleOverride = LOCTEXT("SaveLookTitle", "Save Water Look Preset");
+	Config.DefaultPath = TEXT("/Game");
+	Config.DefaultAssetName = TEXT("WL_Water");
+	Config.AssetClassNames.Add(UMobWaterLookPreset::StaticClass()->GetClassPathName());
+	Config.ExistingAssetPolicy = ESaveAssetDialogExistingAssetPolicy::AllowButWarn;
+
+	const FString Picked = FModuleManager::LoadModuleChecked<FContentBrowserModule>("ContentBrowser")
+		.Get().CreateModalSaveAssetDialog(Config);
+
+	if (Picked.IsEmpty())
+	{
+		return;
+	}
+
+	const FString PackageName = FPackageName::ObjectPathToPackageName(Picked);
+	const FString AssetName = FPackageName::ObjectPathToObjectName(Picked);
+
+	UPackage* Package = CreatePackage(*PackageName);
+	if (!Package)
+	{
+		Notify(LOCTEXT("SaveLookNoPackage", "MobWater: could not create that package."), false);
+		return;
+	}
+
+	Package->FullyLoad();
+
+	// Reused when it is already there, so a body pointed at a preset and saved again edits the one it
+	// is using rather than leaving it behind and pointing at a copy.
+	UMobWaterLookPreset* Preset = FindObject<UMobWaterLookPreset>(Package, *AssetName);
+	const bool bCreated = Preset == nullptr;
+
+	if (bCreated)
+	{
+		Preset = NewObject<UMobWaterLookPreset>(Package, *AssetName, RF_Public | RF_Standalone);
+	}
+
+	if (!Preset)
+	{
+		Notify(LOCTEXT("SaveLookNoAsset", "MobWater: could not create the preset."), false);
+		return;
+	}
+
+	Preset->Modify();
+	Water->CaptureLookPreset(Preset);
+
+	if (bCreated)
+	{
+		FAssetRegistryModule::AssetCreated(Preset);
+	}
+
+	Package->MarkPackageDirty();
+
+	FSavePackageArgs Args;
+	Args.TopLevelFlags = RF_Public | RF_Standalone;
+	Args.SaveFlags = SAVE_NoError;
+
+	const FString FileName = FPackageName::LongPackageNameToFilename(
+		PackageName, FPackageName::GetAssetPackageExtension());
+
+	if (!UPackage::SavePackage(Package, Preset, *FileName, Args))
+	{
+		Notify(LOCTEXT("SaveLookFailed", "MobWater: the preset could not be written to disk."), false);
+		return;
+	}
+
+	// The body is pointed at what it just produced, so the details panel shows where the look came
+	// from and applying it again is a no-op rather than a surprise.
+	{
+		const FScopedTransaction Transaction(LOCTEXT("SaveLookTransaction", "Save Water Look Preset"));
+		Water->Modify();
+		Water->LookPreset = Preset;
+	}
+
+	FModuleManager::LoadModuleChecked<FContentBrowserModule>("ContentBrowser")
+		.Get().SyncBrowserToAssets(TArray<UObject*>{ Preset });
+
+	Notify(FText::Format(LOCTEXT("SaveLookDone", "MobWater: saved {0}."),
+		FText::FromString(AssetName)), true);
 }
 
 void FMobWaterEditorModule::SelectOcean()

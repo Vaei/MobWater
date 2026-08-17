@@ -78,6 +78,14 @@ private:
 	static bool HasSelectedBody();
 
 	/**
+	 * Saves the selected body's look as a preset asset, wherever the dialog is pointed.
+	 *
+	 * Anywhere rather than the plugin's own folder: a look belongs to the project that tuned it, and
+	 * a preset written inside MobWater is one a regenerate is entitled to overwrite.
+	 */
+	static void SaveLookPreset();
+
+	/**
 	 * Selects the level's ocean.
 	 *
 	 * An ocean is kept centred on the view and has no bank, so there is rarely anywhere to click that

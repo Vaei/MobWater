@@ -42,8 +42,6 @@ UMobWaterSettings::UMobWaterSettings()
 	DefaultWavePresets.Add(EMobWaterShape::Spline, TSoftObjectPtr<UMobWaterWavePreset>(FSoftObjectPath(Lake)));
 	DefaultWavePresets.Add(EMobWaterShape::Ocean, TSoftObjectPtr<UMobWaterWavePreset>(FSoftObjectPath(Ocean)));
 
-	DefaultSpectrum = TSoftObjectPtr<UMobWaterSpectrum>(FSoftObjectPath(TEXT("/MobWater/Spectra/SP_MobWater_Ocean.SP_MobWater_Ocean")));
-
 	ReflectionTexture = TSoftObjectPtr<UTexture>(FSoftObjectPath(TEXT("/MobWater/Textures/T_MobWaterSky.T_MobWaterSky")));
 
 	UnderwaterMaterial = TSoftObjectPtr<UMaterialInterface>(FSoftObjectPath(TEXT("/MobWater/Materials/M_MobWaterUnderwater.M_MobWaterUnderwater")));
@@ -103,11 +101,6 @@ UMobWaterWavePreset* UMobWaterSettings::GetDefaultWavePreset(EMobWaterShape Shap
 	}
 
 	return nullptr;
-}
-
-UMobWaterSpectrum* UMobWaterSettings::GetDefaultSpectrum()
-{
-	return GetDefault<UMobWaterSettings>()->DefaultSpectrum.LoadSynchronous();
 }
 
 UMaterialInterface* UMobWaterSettings::GetMaterial(EMobWaterShape Shape, int32 Variant)

@@ -175,6 +175,60 @@ void UMobWaterComponent::ApplyLookPreset()
 	MarkRenderStateDirty();
 }
 
+void UMobWaterComponent::CaptureLookPreset(UMobWaterLookPreset* Preset) const
+{
+	if (!Preset)
+	{
+		return;
+	}
+
+	Preset->bGradientColor = bGradientColor;
+	Preset->GradientRow = GradientRow;
+	Preset->ShallowColor = ShallowColor;
+	Preset->DeepColor = DeepColor;
+	Preset->FadeDepth = FadeDepth;
+	Preset->ClarityDepth = ClarityDepth;
+	Preset->MinOpacity = MinOpacity;
+	Preset->Unlit = Unlit;
+	Preset->Roughness = Roughness;
+	Preset->DetailStrength = DetailStrength;
+	Preset->DetailScrollSpeed = DetailScrollSpeed;
+	Preset->MacroStrength = MacroStrength;
+	Preset->EdgeFoamWidth = EdgeFoamWidth;
+
+	Preset->bFoam = bFoam;
+	Preset->ShoreFoamDepth = ShoreFoamDepth;
+	Preset->CrestFoamThreshold = CrestFoamThreshold;
+	Preset->FoamNoiseAmount = FoamNoiseAmount;
+	Preset->FoamOpacity = FoamOpacity;
+	Preset->bFoamTexture = bFoamTexture;
+	Preset->FoamTextureOpacity = FoamTextureOpacity;
+	Preset->FoamSharpness = FoamSharpness;
+	Preset->FoamBands = FoamBands;
+	Preset->FoamBandSeparation = FoamBandSeparation;
+
+	Preset->GlintGloss = GlintGloss;
+	Preset->GlintStrength = GlintStrength;
+	Preset->GlintThreshold = GlintThreshold;
+	Preset->GlintDensity = GlintDensity;
+	Preset->GlintEmissive = GlintEmissive;
+
+	Preset->bCaustics = bCaustics;
+	Preset->CausticStrength = CausticStrength;
+	Preset->CausticDepth = CausticDepth;
+
+	Preset->bRefraction = bRefraction;
+	Preset->RefractionStrength = RefractionStrength;
+	Preset->ReflectionStrength = ReflectionStrength;
+
+	Preset->bRipples = bRipples;
+	Preset->RippleStrength = RippleStrength;
+
+	// The waves are named rather than copied, because they are an asset of their own that several
+	// looks can share. A body running the world's default carries none, and saves none.
+	Preset->Waves = WavePreset;
+}
+
 void UMobWaterComponent::ApplySurface()
 {
 	// A spline body brings its own mesh, generated from the shape that was drawn, and its own scale
@@ -374,7 +428,7 @@ UMobWaterSpectrum* UMobWaterComponent::GetSpectrum() const
 		return nullptr;
 	}
 
-	return Spectrum ? Spectrum.Get() : UMobWaterSettings::GetDefaultSpectrum();
+	return Spectrum.Get();
 }
 
 const FMobWaterWaveParams& UMobWaterComponent::GetWaveParams() const
