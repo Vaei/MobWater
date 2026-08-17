@@ -277,75 +277,45 @@ void UMobWaterSubsystem::TickUnderwater()
 	// gains a body later gets it on the frame the body registers.
 	if (!Settings->bAutoUnderwater || Bodies.Num() == 0 || IsRunningDedicatedServer())
 	{
+		UpdateUnderwaterView(nullptr);
 		return;
 	}
 
-	UClass* Class = Settings->UnderwaterComponent.LoadSynchronous();
-	if (!Class)
-	{
-		return;
-	}
-
-	bool bPlayerHasTheView = false;
+	// The camera manager a local player is looking through, if one is. Not the pawn or its camera
+	// component: the manager's own transform is the point of view after every modifier, shake and lag
+	// has had it, and a plane held in front of anything earlier than that is one the view can end up
+	// behind.
+	USceneComponent* View = nullptr;
 
 	for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
 	{
 		const APlayerController* Controller = It->Get();
-		if (!Controller || !Controller->IsLocalController())
+		if (!Controller || !Controller->IsLocalController() || !Controller->PlayerCameraManager)
 		{
 			continue;
 		}
-
-		APlayerCameraManager* Camera = Controller->PlayerCameraManager;
-		if (!Camera)
-		{
-			continue;
-		}
-
-		UActorComponent* Existing = Camera->GetComponentByClass(UMobWaterUnderwaterComponent::StaticClass());
 
 		// Whether a local player is looking through this controller rather than merely owning it.
 		// Switching to a debug camera hands the local player a second controller, and the one it was
-		// taken from keeps a camera manager that has stopped following anything - so a plane left on
-		// it is a quad standing wherever that view stopped.
+		// taken from keeps a camera manager that has stopped following anything.
 		const ULocalPlayer* LocalPlayer = Cast<ULocalPlayer>(Controller->Player);
-		if (!LocalPlayer || LocalPlayer->PlayerController != Controller)
+		if (LocalPlayer && LocalPlayer->PlayerController == Controller)
 		{
-			if (Existing)
-			{
-				Existing->DestroyComponent();
-			}
-			continue;
-		}
-
-		bPlayerHasTheView = true;
-
-		if (Existing)
-		{
-			continue;
-		}
-
-		// On the camera manager, not on the pawn or its camera component: the manager's own transform
-		// is the point of view after every modifier, shake and lag has had it, and a plane held in
-		// front of anything earlier than that is a plane the view can end up behind.
-		UMobWaterUnderwaterComponent* Plane = NewObject<UMobWaterUnderwaterComponent>(Camera, Class);
-		if (Plane)
-		{
-			Plane->SetupAttachment(Camera->GetRootComponent());
-			Plane->RegisterComponent();
+			View = Controller->PlayerCameraManager->GetRootComponent();
+			break;
 		}
 	}
 
-	TickViewportUnderwater(!bPlayerHasTheView);
+	UpdateUnderwaterView(View);
 }
 
-void UMobWaterSubsystem::TickViewportUnderwater(bool bWanted)
+bool UMobWaterSubsystem::GetFreeViewTransform(FTransform& OutTransform) const
 {
 #if WITH_EDITOR
-	UWorld* World = GetWorld();
+	const UWorld* World = GetWorld();
 	if (!GIsEditor || !World)
 	{
-		return;
+		return false;
 	}
 
 	// What the editor last worked out it was looking through, which is the only place a viewport
@@ -353,73 +323,112 @@ void UMobWaterSubsystem::TickViewportUnderwater(bool bWanted)
 	// it. Cached whether or not the viewport actually redrew, so this survives a viewport that is not
 	// in realtime. Perspective only: a four pane layout caches its top and side views here too, and
 	// putting the water in front of one of those puts it nowhere anybody is looking.
-	const FMatrix* ViewToWorld = nullptr;
-
 	for (const FWorldCachedViewInfo& Info : World->CachedViewInfoRenderedLastFrame)
 	{
-		if (Info.ProjectionMatrix.M[3][3] == 0.f)
+		if (Info.ProjectionMatrix.M[3][3] != 0.f)
 		{
-			ViewToWorld = &Info.ViewToWorld;
-			break;
+			continue;
 		}
+
+		// View space looks down its own Z with Y up, which is not how an actor is turned.
+		OutTransform = FTransform(
+			FRotationMatrix::MakeFromXZ(
+				Info.ViewToWorld.GetUnitAxis(EAxis::Z),
+				Info.ViewToWorld.GetUnitAxis(EAxis::Y)).Rotator(),
+			Info.ViewToWorld.GetOrigin());
+
+		return true;
 	}
+#endif
 
-	AActor* Host = ViewportUnderwater.Get();
+	return false;
+}
 
-	if (!bWanted || !ViewToWorld)
+void UMobWaterSubsystem::UpdateUnderwaterView(USceneComponent* View)
+{
+	AActor* Host = UnderwaterView.Get();
+
+	FTransform Free = FTransform::Identity;
+	const bool bFree = !View && GetFreeViewTransform(Free);
+
+	if (!View && !bFree)
 	{
 		if (Host)
 		{
 			Host->Destroy();
-			ViewportUnderwater.Reset();
+			UnderwaterView.Reset();
 		}
 		return;
 	}
 
-	// View space looks down its own Z with Y up, which is not how an actor is turned.
-	const FVector Location = ViewToWorld->GetOrigin();
-	const FRotator Rotation = FRotationMatrix::MakeFromXZ(
-		ViewToWorld->GetUnitAxis(EAxis::Z), ViewToWorld->GetUnitAxis(EAxis::Y)).Rotator();
-
 	if (!Host)
 	{
-		UClass* Class = GetDefault<UMobWaterSettings>()->UnderwaterComponent.LoadSynchronous();
-		if (!Class)
-		{
-			return;
-		}
-
-		FActorSpawnParameters Params;
-		Params.ObjectFlags |= RF_Transient;
-		Params.bHideFromSceneOutliner = true;
-		Params.bNoFail = true;
-		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-
-		// Spawning inside somebody else's transaction modifies the level, which dirties the map and
-		// puts an undo step on a preview actor. This can land on any frame, so it can land on one where
-		// something is being dragged.
-		TGuardValue<ITransaction*> SuppressTransaction(GUndo, nullptr);
-
-		Host = World->SpawnActor<AActor>(Location, Rotation, Params);
+		Host = SpawnUnderwaterView();
 		if (!Host)
 		{
 			return;
 		}
 
-		USceneComponent* Root = NewObject<USceneComponent>(Host, TEXT("MobWaterViewRoot"));
-		Root->SetMobility(EComponentMobility::Movable);
-		Host->SetRootComponent(Root);
-		Root->RegisterComponent();
-
-		UMobWaterUnderwaterComponent* Plane = NewObject<UMobWaterUnderwaterComponent>(Host, Class);
-		Plane->SetupAttachment(Root);
-		Plane->RegisterComponent();
-
-		ViewportUnderwater = Host;
+		UnderwaterView = Host;
 	}
 
-	Host->SetActorLocationAndRotation(Location, Rotation);
+	if (View)
+	{
+		if (Host->GetAttachParentActor() != View->GetOwner())
+		{
+			Host->AttachToComponent(View, FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+		}
+
+		return;
+	}
+
+	if (Host->GetAttachParentActor())
+	{
+		Host->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+	}
+
+	Host->SetActorTransform(Free);
+}
+
+AActor* UMobWaterSubsystem::SpawnUnderwaterView()
+{
+	UWorld* World = GetWorld();
+	UClass* Class = GetDefault<UMobWaterSettings>()->UnderwaterComponent.LoadSynchronous();
+
+	if (!World || !Class)
+	{
+		return nullptr;
+	}
+
+	FActorSpawnParameters Params;
+	Params.ObjectFlags |= RF_Transient;
+#if WITH_EDITOR
+	Params.bHideFromSceneOutliner = true;
 #endif
+	Params.bNoFail = true;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+	// Spawning inside somebody else's transaction modifies the level, which dirties the map and puts an
+	// undo step on a preview actor. This can land on any frame, so it can land on one where something
+	// is being dragged.
+	TGuardValue<ITransaction*> SuppressTransaction(GUndo, nullptr);
+
+	AActor* Host = World->SpawnActor<AActor>(FVector::ZeroVector, FRotator::ZeroRotator, Params);
+	if (!Host)
+	{
+		return nullptr;
+	}
+
+	USceneComponent* Root = NewObject<USceneComponent>(Host, TEXT("MobWaterViewRoot"));
+	Root->SetMobility(EComponentMobility::Movable);
+	Host->SetRootComponent(Root);
+	Root->RegisterComponent();
+
+	UMobWaterUnderwaterComponent* Plane = NewObject<UMobWaterUnderwaterComponent>(Host, Class);
+	Plane->SetupAttachment(Root);
+	Plane->RegisterComponent();
+
+	return Host;
 }
 
 void UMobWaterSubsystem::TickSun()

@@ -193,14 +193,26 @@ protected:
 	 */
 	void TickUnderwater();
 
+	/** Attaches the view to a camera manager, or places it where a free camera drew from, or drops it. */
+	void UpdateUnderwaterView(class USceneComponent* View);
+
 	/**
-	 * Puts the underwater view in front of a camera that is nobody's.
+	 * Where a camera nobody owns is drawing from.
 	 *
 	 * An editor viewport, a play ejected from, and simulate all draw from somewhere no player camera
 	 * manager knows about, and those are the views a body of water is looked at from while it is being
-	 * built - so the one place the effect is most needed is the one place it was never attached.
+	 * built.
 	 */
-	void TickViewportUnderwater(bool bWanted);
+	bool GetFreeViewTransform(FTransform& OutTransform) const;
+
+	/**
+	 * Builds the actor the underwater plane is carried on.
+	 *
+	 * Its own actor rather than a component on the camera manager, because a camera manager is a
+	 * hidden actor and a game world refuses to draw anything a hidden actor owns. Attached to the
+	 * manager rather than placed at it, so the plane is where the view is on the frame it is drawn.
+	 */
+	AActor* SpawnUnderwaterView();
 
 	/**
 	 * Copies the stepped field back into the history with every push waiting on it added.
@@ -283,9 +295,9 @@ protected:
 	/** Said once, for the same reason. */
 	bool bWarnedStampOverflow = false;
 
-	/** Carries the underwater view where no player camera manager is driving the picture. */
+	/** Carries the underwater plane, attached to whatever is drawing the picture. */
 	UPROPERTY(Transient)
-	TWeakObjectPtr<AActor> ViewportUnderwater;
+	TWeakObjectPtr<AActor> UnderwaterView;
 
 	/** The light being followed. Re-found when it goes away, which is what a level transition is. */
 	UPROPERTY(Transient)

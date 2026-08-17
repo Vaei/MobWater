@@ -22,7 +22,11 @@
 
 <div data-shot="underwater.view"></div>
 
-<p>Attaching it is normally done for you. With <b>Auto Underwater</b> on, the plane follows whichever camera is drawing the picture: the local player's camera manager while one is driving it, the debug camera the moment it takes over, and an editor viewport when nothing is playing at all. That last one matters more than it sounds - flying the editor camera under the surface is how water gets looked at while it is being built, and it is the view that had nothing in front of it.</p>
+<p>Attaching it is normally done for you. With <b>Auto Underwater</b> on, the plane rides a small actor of its own that follows whichever camera is drawing the picture: attached to the local player's camera manager while one is driving it, to the debug camera the moment it takes over, and placed at an editor viewport when nothing is playing at all.</p>
+
+<div class="important">
+Its own actor, and not a component on the camera manager, for a reason worth knowing if you attach one by hand: a play world will not draw anything a <b>hidden</b> actor owns, and <code>APlayerCameraManager</code> is hidden. A plane parented straight to one is submerged, fires its events and is never drawn.
+</div>
 
 <p>A plane rather than a post-process pass, for the same reason the lights in <a href="https://github.com/Vaei/MobLights">MobLights</a> are meshes: this renderer has no spare full-screen pass, and a material on a quad is one the renderer already knows how to draw. No scene view extension, no render graph pass, no global shader.</p>
 
