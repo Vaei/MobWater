@@ -50,12 +50,6 @@ All of it costs one translucent plane, and runs anywhere - including the mobile 
 
 ## Features
 
-**Bodies of water first, ocean second.** A pond, a bath, a temple basin, a flooded cellar and a puddle are what a level actually has in it. An ocean is one more shape, not the point.
-
-**Nothing you turn off is paid for.** Every feature is a compiled permutation rather than an amount of zero, because the values arrive as per-instance data the compiler cannot fold.
-
-<!-- TODO(image): the Water menu and the placement panel, side by side -->
-
 ### Water that knows how deep it is
 
 - **The bed comes from the depth buffer**, so the water column's thickness is a tap that was already being paid for. Colour, clarity, shoreline foam and the underwater fade all read off that one number
@@ -132,23 +126,10 @@ Full walkthrough: [Install](https://vaei.github.io/MobWater/install.html).
   * Stylized unlit character masters, so the characters standing in this water read the same anywhere
 * [Gradient Tool Plugin](https://github.com/Vaei/GradientTool)
   * Stylized water is a gradient indexed by depth, and a gradient you cannot edit without recompiling is not a gradient
+* [Non-Destructive Synced Net Clock](https://vorixo.github.io/devtricks/non-destructive-synced-net-clock/)
+  * What to bind to the time source. A clock corrected by rate rather than by snapping, which is the difference between waves that stay in phase and waves that jump every correction
 * [Forward Render Helper Plugin](https://github.com/Vaei/ForwardRender)
   * Replaces Hotpatch Module in Perf Maxing guide above
-
-## What it is not
-
-- **It is not Single Layer Water.** It does not reflect the sky the way a shading model does, and there is no planar reflection behind it
-- **It needs scene depth in the translucent pass**, and scene colour as well if refraction is on. Those are the platform requirements. Confirm them on your target before committing to it
-- **Its ripples are not authoritative.** They live in a render target, a dedicated server has none, and so the CPU query does not know about them. Waves are shared; ripples are decoration
-- **Exclusion is a footprint, not a volume.** The surface is a plane and the mask is a plan view, so a hull is carved by its outline - a bridge over water does not hold water off the deck
-- **It does not push anything.** Flow moves what the water looks like and biases where foam gathers; it does not carry a swimmer downstream
-- **Rivers are splines, not terrain.** Nothing here carves a bank, cuts a waterfall or breaks into rapids
-- **It does not float anything yet.** The query a buoyancy component needs is here and shaped for it; the component is not
-- **Mesh exclusion is not implemented.** The shape exists and behaves as its bounding rectangle, and says so once in the log rather than quietly doing something else
-- **Four exclusion volumes are rendered at once**, nearest the view. A fifth holds no water back, and the log says when that happens
-- **Exclusion is not subtracted from the CPU query.** A point inside a hull still has a surface above it; ask `GetExclusionAtLocation` as well
-- **The spectrum is not baked yet.** The ocean runs a five wave Gerstner set, which is a real ocean and is not the FFT this promises
-- **There is no meniscus**, and no caustics seen from underneath. Absorption and the submersion state are what exists below the surface
 
 ## License
 
