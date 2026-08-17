@@ -86,6 +86,8 @@ Distance to the edge, and not the depth of the water, however much the second so
 
 <p>Unbound, it falls back to <code>AGameStateBase::GetServerWorldTimeSeconds</code>, which is enough to see water move and not enough to keep two machines in phase - it is corrected in steps, and a step in the clock is a step in every wave at once. Outside a game world it accumulates locally, which is what makes the viewport move without playing.</p>
 
+<p>What to bind is a clock corrected by rate rather than by snapping. <a href="https://vorixo.github.io/devtricks/non-destructive-synced-net-clock/">Vorixo's non-destructive synced net clock</a> is the reference implementation: it never moves time backwards and never jumps it forwards, it dilates until it has caught up, so a correction arriving mid-swell is invisible on the surface instead of being a frame where every wave moved at once.</p>
+
 <h3>Folding</h3>
 
 <p>Whatever the source says is folded into <b>Time Loop Period</b> - five minutes by default - before anything reads it, and the same folded value reaches the material and every CPU query. Two reasons, and both are load-bearing:</p>

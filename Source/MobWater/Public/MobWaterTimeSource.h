@@ -11,7 +11,8 @@
  * AGameStateBase::GetServerWorldTimeSeconds, which is enough to see water move and not enough to keep
  * two machines in phase: it is corrected in steps, and a step in the clock is a step in every wave at
  * once - the whole surface jumps. A project that needs a server and a client to agree on where the
- * surface is supplies a clock that is corrected by rate instead, and binds it here.
+ * surface is supplies a clock that is corrected by rate instead, and binds it here:
+ * https://vorixo.github.io/devtricks/non-destructive-synced-net-clock/
  *
  * Return seconds. Anything monotonic and shared will do; it does not have to start at zero, because
  * the subsystem folds it into the loop period before anything reads it.
