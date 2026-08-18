@@ -136,6 +136,40 @@ void MobWaterUnpackFoamEdge(float Packed, out float EdgeWidth, out float Opacity
 	Opacity = Packed - Whole;
 }
 
+/** The most a crest may throw the waterline's foam past where it sits between waves. */
+#define MOB_WATER_RUNUP_RANGE 4.0f
+
+/**
+ * Splits the shoreline foam slot into how far up the foam reaches and how much further a crest
+ * throws it.
+ *
+ * Paired for the same reason as the two above. The whole part is the depth in world units, which is
+ * a centimetre of resolution on a line that is tens of them wide, and the fraction is the run up
+ * over MOB_WATER_RUNUP_RANGE.
+ */
+void MobWaterUnpackShoreFoam(float Packed, out float Depth, out float RunUp)
+{
+	Depth = floor(Packed);
+	RunUp = (Packed - Depth) * MOB_WATER_RUNUP_RANGE;
+}
+
+/**
+ * How much wider the waterline's foam runs while a crest is on it.
+ *
+ * The width of the band and not its brightness, for the reason MobWaterFoamBand is built the way it
+ * is: foam is white, and what a wave changes is where it stops. A surge that brightened the foam
+ * instead would read as the water flashing.
+ *
+ * Driven by the fold rather than by the wave's height, which costs nothing - the fold is already
+ * interpolated for the crest foam - and which is also the better signal. The fold is measured
+ * against the wave's own steepness, so a crest shoaling into a cliff, leaning harder as it rises,
+ * throws the foam further up the rock without anything having tied the two together.
+ */
+float MobWaterRunUp(float Fold, float RunUp)
+{
+	return 1.0f + saturate(Fold) * RunUp;
+}
+
 /**
  * How much water is between this pixel and what is behind it, along the view ray.
  *
@@ -284,27 +318,9 @@ float MobWaterExclusionAt(float2 WorldXY, float4 A, float4 B, float Softness)
 		return 0.0f;
 	}
 
-	const float2 Offset = WorldXY - A.xy;
-
-	// Into the volume's own frame. The CPU applies the same rotation, so a query and a pixel agree
-	// about where the edge is even on a hull that is turning.
-	const float2 Local = float2(
-		Offset.x * B.x + Offset.y * B.y,
-		-Offset.x * B.y + Offset.y * B.x);
-
-	float Inside;
-	if (B.z < 0.5f)
-	{
-		Inside = A.z - length(Local);
-	}
-	else
-	{
-		Inside = min(A.z - abs(Local.x), A.w - abs(Local.y));
-	}
-
 	// Softened over a distance rather than a fraction, so a long thin hull fades over the same
 	// number of centimetres at its bow as along its side.
-	return saturate(Inside / max(Softness, 1.0f)) * B.w;
+	return saturate(MobWaterVolumeInside(WorldXY, A, B) / max(Softness, 1.0f)) * B.w;
 }
 
 /** The most any of the four volumes excludes. Whichever removes most water is the one that decides. */

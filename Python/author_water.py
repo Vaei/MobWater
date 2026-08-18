@@ -69,6 +69,9 @@ COLLECTION_VECTORS = COLLECTION_VECTORS + (
     [('ExclusionA%d' % i, (0.0, 0.0, 1.0, 1.0)) for i in range(EXCLUSION_SLOTS)]
     + [('ExclusionB%d' % i, (0.0, 0.0, 0.0, 0.0)) for i in range(EXCLUSION_SLOTS)]
     + [('ExclusionSoftness', (1.0, 1.0, 1.0, 1.0))]
+    # How far out from each volume its waves feel the ground, in world units. Zero is a volume that
+    # carves water and makes no surf, which is what every volume authored before this was one.
+    + [('ExclusionShoal', (0.0, 0.0, 0.0, 0.0))]
     # Where the level's sun is. Tracked by the subsystem, because a lit translucent surface on this
     # renderer has nothing else to reflect.
     + [('SunDirection', (0.0, 0.0, -1.0, 0.0)), ('SunColor', (1.0, 0.95, 0.85, 1.0))]
@@ -266,6 +269,17 @@ CAUSTIC_SCALE = 320.0
 #
 # One Custom node rather than one per wave: a Custom node emits its whole body regardless of what
 # reads it, so eight of them would be eight copies of the set-wide scaling as well as the waves.
+# What the ground coming up under a wave does to it, before the wave set is evaluated at all.
+#
+# Its own node rather than nine more inputs on the wave node, which already takes twenty. It returns
+# the pair the waves need: the gain that goes into the amplitude and the choppiness, and what is left
+# of the wave after the obstacle, which multiplies the finished displacement instead.
+_CODE_SHOAL = """
+float Gain, Survives;
+MobWaterShoalScales(MobWaterShoal(SampleXY, A0, B0, A1, B1, A2, B2, A3, B3, Shoal), Gain, Survives);
+return float2(Gain, Survives);
+"""
+
 _CODE_WAVES = """
 float3 Disp = float3(0.0f, 0.0f, 0.0f);
 float3 Nrm = float3(0.0f, 0.0f, 1.0f);
@@ -283,7 +297,7 @@ MobWaterEvaluate(
 	A0, B0, A1, B1, A2, B2, A3, B3,
 	A4, B4, A5, B5, A6, B6, A7, B7,
 	SampleXY, Time,
-	Scales.y * BodyAmplitude, Scales.z * BodySpeed, Scales.w, Scales.x,
+	Scales.y * BodyAmplitude * Shoal.x, Scales.z * BodySpeed, Scales.w * Shoal.x, Scales.x,
 	Disp, Nrm, Fold);
 
 WaveNormal = Nrm;
@@ -455,11 +469,20 @@ MobWaterUnpackFoamNoise(NoisePacked, NoiseAmount, TextureAmount);
 float EdgeWidth, Opacity;
 MobWaterUnpackFoamEdge(EdgePacked, EdgeWidth, Opacity);
 
+float ShoreDepth, RunUp;
+MobWaterUnpackShoreFoam(ShoreFoamDepth, ShoreDepth, RunUp);
+
+// A crest arriving pushes the waterline up whatever it is lapping against and the trough behind it
+// takes it back down. Both bands widen together because both are the same line: one measures it
+// against the bed and the other against the bank, and a shore that surged in one and not the other
+// would tear along the seam between them.
+const float Surge = MobWaterRunUp(Fold, RunUp);
+
 // The noise moves where each band ends rather than how bright it is. Foam is white; what varies is
 // where it stops, and multiplying noise into the result instead is what turns a shoreline into
 // scales lying on the water.
-float Shore = MobWaterFoamBand(Column, ShoreFoamDepth, Noise, NoiseAmount, Sharpness);
-float Edge = MobWaterFoamBand(ShoreFade, EdgeWidth, Noise, NoiseAmount, Sharpness);
+float Shore = MobWaterFoamBand(Column, ShoreDepth * Surge, Noise, NoiseAmount, Sharpness);
+float Edge = MobWaterFoamBand(ShoreFade, EdgeWidth * Surge, Noise, NoiseAmount, Sharpness);
 float Crest = MobWaterCrestFoam(Fold, CrestFoamThreshold);
 
 float Foam = max(max(Shore, Edge), Crest);
@@ -498,7 +521,42 @@ return MobWaterBlendNormals(Base, Ripple);
 """
 
 
-def _wave_node(mat, collection, sample_xy, time, body_scales, x, y):
+def _shoal_node(mat, collection, sample_xy, b_exclusion, x, y):
+    """The gain and the survival a vertex gets from whatever it is breaking on.
+
+    Under the same switch the carving is, because it reads the same four volumes: a body that is not
+    carved by them is not shoaled by them either, and both leave the shader together.
+
+    Off, it is a constant pair of ones - which the compiler folds into the wave node's own scales, so
+    the whole feature costs nothing at all rather than costing a multiply by one.
+    """
+    inputs = ['SampleXY']
+    sources = [sample_xy]
+
+    for i in range(EXCLUSION_SLOTS):
+        for slot in ('A', 'B'):
+            sources.append(
+                g.collection_param(mat, collection, 'Exclusion%s%d' % (slot, i), x - 2, y + i * 2))
+            inputs.append('%s%d' % (slot, i))
+
+    sources.append(g.collection_param(mat, collection, 'ExclusionShoal', x - 2, y + 9))
+    inputs.append('Shoal')
+
+    node = g.custom(mat, _CODE_SHOAL, g.CMOT.CMOT_FLOAT2, inputs, [], x, y,
+                    'How much taller and how much shorter the ground under this vertex makes its '
+                    'wave. Mirrors FMobWaterWaves::ShoalScales exactly.', includes=INCLUDES)
+
+    for name, src in zip(inputs, sources):
+        g.link(src, '', node, name)
+
+    flat = g.expr(mat, unreal.MaterialExpressionConstant2Vector, x, y + 11)
+    flat.set_editor_property('r', 1.0)
+    flat.set_editor_property('g', 1.0)
+
+    return g.static_switch(mat, b_exclusion, node, '', flat, '', x + 1, y)
+
+
+def _wave_node(mat, collection, sample_xy, time, body_scales, shoal, x, y):
     """The Custom node that evaluates the wave set, and the collection nodes feeding it."""
     inputs = []
     sources = []
@@ -511,14 +569,14 @@ def _wave_node(mat, collection, sample_xy, time, body_scales, x, y):
 
     scales = g.collection_param(mat, collection, 'WaveScales', x - 2, y - 2)
 
-    inputs += ['SampleXY', 'Time', 'Scales', 'BodyScales']
+    inputs += ['SampleXY', 'Time', 'Scales', 'BodyScales', 'Shoal']
 
     node = g.custom(mat, _CODE_WAVES, g.CMOT.CMOT_FLOAT3, inputs,
                     [('WaveNormal', g.CMOT.CMOT_FLOAT3), ('WaveFold', g.CMOT.CMOT_FLOAT1)],
                     x, y, 'The wave set, evaluated. Mirrors FMobWaterWaves::Evaluate exactly.',
                     includes=INCLUDES)
 
-    for name, src in zip(inputs, sources + [sample_xy, time, scales, body_scales]):
+    for name, src in zip(inputs, sources + [sample_xy, time, scales, body_scales, shoal]):
         g.link(src, '', node, name)
 
     return node
@@ -704,7 +762,30 @@ def build_master_material():
                                'in the fraction. MobWaterBodyScales packs it; nothing should be '
                                'typed in here by hand.')
 
-    waves = _wave_node(mat, collection, sample_xy, time_param, body_scales, -3, 0)
+    # Declared here rather than beside the carving it also gates, because the vertex shader needs it
+    # first: the same four volumes decide how much water is kept out and how tall the waves over
+    # them stand, and one switch turning off half of that would be a trap.
+    b_exclusion = g.static_bool(mat, 'bExclusion', True, 'Exclusion', -8, 12, 24,
+                                'Lets exclusion volumes carve this body and shoal its waves. Off, '
+                                'the four volumes are not evaluated in either shader.')
+
+    shoal = _shoal_node(mat, collection, sample_xy, b_exclusion, -7, 0)
+
+    shoal_gain = g.expr(mat, unreal.MaterialExpressionComponentMask, -5, -4)
+    shoal_gain.set_editor_property('r', True)
+    shoal_gain.set_editor_property('g', False)
+    shoal_gain.set_editor_property('b', False)
+    shoal_gain.set_editor_property('a', False)
+    g.link(shoal, '', shoal_gain, '')
+
+    shoal_survives = g.expr(mat, unreal.MaterialExpressionComponentMask, -5, -2)
+    shoal_survives.set_editor_property('r', False)
+    shoal_survives.set_editor_property('g', True)
+    shoal_survives.set_editor_property('b', False)
+    shoal_survives.set_editor_property('a', False)
+    g.link(shoal, '', shoal_survives, '')
+
+    waves = _wave_node(mat, collection, sample_xy, time_param, body_scales, shoal_gain, -3, 0)
 
     # --- and the sea that was solved offline --------------------------------
     #
@@ -778,10 +859,17 @@ def build_master_material():
     displaced = g.add(mat, waves, '', spectrum_disp, '', -1, 18)
     displacement = g.static_switch(mat, b_spectrum, displaced, '', waves, '', -1, 20)
 
-    # Only the shore fade multiplies the result. The body's own amplitude went into the wave node,
-    # where it also reaches the normal - and where it correctly leaves the baked sea alone, which
-    # carries its own scales and is not the wave set this scales.
-    wpo = g.mul(mat, displacement, '', shore, '', 0, 0)
+    # Only what lies a wave down multiplies the result. The body's own amplitude went into the wave
+    # node, where it also reaches the normal - and where it correctly leaves the baked sea alone,
+    # which carries its own scales and is not the wave set this scales.
+    #
+    # A wave breaking rides here rather than in the amplitude, and it has to. A Gerstner wave's
+    # sideways throw does not depend on its height - the steepness divides that back out - so a wave
+    # taken to nothing through its amplitude alone still slides the surface across the rock it just
+    # died on. The baked sea is killed by the same term for the same reason, and only killed by it:
+    # a Phillips spectrum is a deep water sea state, so Green's law has nothing to say about it.
+    laid_down = g.mul(mat, shore, '', shoal_survives, '', -1, 2)
+    wpo = g.mul(mat, displacement, '', laid_down, '', 0, 0)
 
     # --- how much water is in front of what is behind it --------------------
     scene_depth = g.expr(mat, unreal.MaterialExpressionSceneDepth, -5, 40)
@@ -1069,7 +1157,9 @@ def build_master_material():
     fold = g.vertex_interpolator(mat, fold_source, '', 1, 7)
 
     shore_foam_depth = g.cpd_scalar(mat, 'ShoreFoamDepth', 60.0, CPD_SHORE_FOAM_DEPTH, 'Foam', -5, 66,
-                                    'How far up from the bed foam reaches. 0 is no shoreline foam.')
+                                    'How far up from the bed foam reaches, with how much further a '
+                                    'crest throws it in the fraction. MobWaterUnpackShoreFoam '
+                                    'splits it; nothing should be typed in here by hand.')
     crest_threshold = g.cpd_scalar(mat, 'CrestFoamThreshold', 0.55, CPD_CREST_FOAM_THRESHOLD, 'Foam',
                                    -5, 67, 'How hard the surface has to fold before it breaks white. '
                                            '1 is never, which is what a still body wants.')
@@ -1277,10 +1367,6 @@ def build_master_material():
     exclusion = g.binary(mat, unreal.MaterialExpressionMax, exclusion, '', outlines, '', 0, 86)
 
     kept = g.sub(mat, g.const(mat, 1.0, -1, 90), '', exclusion, '', 0, 88)
-
-    b_exclusion = g.static_bool(mat, 'bExclusion', True, 'Exclusion', -1, 91, 24,
-                                'Lets exclusion volumes carve this body. Off, the four volumes are '
-                                'not evaluated at all.')
 
     excluded_opacity = g.mul(mat, foam_opacity, '', kept, '', 1, 88)
     out_opacity = g.static_switch(mat, b_exclusion, excluded_opacity, '', foam_opacity, '', 2, 88)
@@ -2374,6 +2460,93 @@ def build_snell_probe():
     return mat
 
 
+SURF_PROBE_NAME = 'M_MobWaterSurfProbe'
+
+# The two halves of surf, laid out as an image. Across the frame is one whole shoal, from the face of
+# an obstacle out to where a wave stops feeling it; the other axis carries whatever the second half
+# of the mode wants varied.
+#
+# Every channel leaves here inside zero to one, and that is not tidiness. This is a UI domain
+# material, which is the one domain DrawMaterialToRenderTarget will render, and a UI material's
+# output is clamped to zero and one on the way out whatever the target's format says. A gain of two
+# written raw comes back as one, and the check that read it would be comparing a clamp against
+# Green's law. mob_water_verify undoes each of these.
+_CODE_SURF_PROBE = """
+if (Mode < 0.5f)
+{
+	// The profile: how much taller the ground makes a wave, how much of it survives the break, and
+	// how much further the crest throws the foam.
+	float Gain, Survives;
+	MobWaterShoalScales(UV.x, Gain, Survives);
+	return float3(Gain - 1.0f, Survives, (MobWaterRunUp(UV.y, RunUp) - 1.0f) / MOB_WATER_RUNUP_RANGE);
+}
+
+// The geometry: one volume, laid over a square of world, answering how far into its shoal a point is
+// and how far inside the volume itself.
+const float2 WorldXY = (UV - 0.5f) * Extent;
+const float4 A = float4(0.0f, 0.0f, Half.x, Half.y);
+const float4 B = float4(cos(Yaw), sin(Yaw), Shape, 1.0f);
+
+return float3(MobWaterShoalAt(WorldXY, A, B, Distance),
+	MobWaterVolumeInside(WorldXY, A, B) / (Extent * 2.0f) + 0.5f, 0.0f);
+"""
+
+
+def build_surf_probe():
+    """A material that evaluates the shoal at every distance at once and writes it out as pixels.
+
+    Shoaling does have a CPU side, and the parity probe already holds the two wave evaluators
+    together - but it holds them together at one shoal, whichever the level happened to publish.
+    This is the profile itself: Green-s law, where the wave breaks, and the run up, checked across a
+    whole run rather than at whatever point a body of water was standing in.
+    """
+    mat = g.get_or_create_material(g.MAT_ROOT, SURF_PROBE_NAME)
+
+    mat.set_editor_property('material_domain', unreal.MaterialDomain.MD_UI)
+    mat.set_editor_property('blend_mode', unreal.BlendMode.BLEND_OPAQUE)
+
+    uv = g.expr(mat, unreal.MaterialExpressionTextureCoordinate, -3, 0)
+
+    mode = g.scalar_param(mat, 'Mode', 0.0, 'Probe', -3, 2,
+                          '0 the shoal profile and the run up. 1 one volume-s distances.')
+    run_up = g.scalar_param(mat, 'RunUp', 1.0, 'Probe', -3, 3, 'How far a crest throws the foam.')
+    extent = g.scalar_param(mat, 'Extent', 4000.0, 'Probe', -3, 4,
+                            'How much world the frame is laid over, in world units.')
+    yaw = g.scalar_param(mat, 'Yaw', 0.0, 'Probe', -3, 5, 'Which way the volume is turned, in radians.')
+    shape = g.scalar_param(mat, 'Shape', 0.0, 'Probe', -3, 6, 'Under a half a disc, over it a rectangle.')
+    distance = g.scalar_param(mat, 'Distance', 1000.0, 'Probe', -3, 7,
+                              'How far out from the volume its waves feel it.')
+    half = g.vector_param4(mat, 'Half', (400.0, 250.0, 0.0, 0.0), 'Probe', -3, 8,
+                           'Half the volume-s size on X and Y.')
+
+    half_xy = g.expr(mat, unreal.MaterialExpressionComponentMask, -2, 8)
+    half_xy.set_editor_property('r', True)
+    half_xy.set_editor_property('g', True)
+    half_xy.set_editor_property('b', False)
+    half_xy.set_editor_property('a', False)
+    g.link(half, '', half_xy, '')
+
+    node = g.custom(mat, _CODE_SURF_PROBE, g.CMOT.CMOT_FLOAT3,
+                    ['UV', 'Mode', 'RunUp', 'Extent', 'Yaw', 'Shape', 'Distance', 'Half'], [], -1, 2,
+                    'Shoaling and run up, as the GPU sees them.', includes=INCLUDES)
+    g.link(uv, '', node, 'UV')
+    g.link(mode, '', node, 'Mode')
+    g.link(run_up, '', node, 'RunUp')
+    g.link(extent, '', node, 'Extent')
+    g.link(yaw, '', node, 'Yaw')
+    g.link(shape, '', node, 'Shape')
+    g.link(distance, '', node, 'Distance')
+    g.link(half_xy, '', node, 'Half')
+
+    g.link_property(mat, node, '', g.MP.MP_EMISSIVE_COLOR)
+
+    g.spread(g.MEL.get_material_expressions(mat))
+    g.MEL.recompile_material(mat)
+    g.save(mat)
+
+    return mat
+
+
 def build_snell_target():
     """Where a capture of the world above is written for the window to read.
 
@@ -2481,14 +2654,18 @@ float BodyAmplitude;
 float BodySpeed;
 MobWaterUnpackBodyScales(BodyScales, BodyAmplitude, BodySpeed);
 
+// Applied exactly as the master applies it, which is the part of shoaling a test can find fault
+// with. The gain goes in through the scales, so the choppiness it multiplies meets the steepness
+// clamp on the way past - putting it outside that clamp instead leaves the shader agreeing with the
+// header everywhere except on the waves that are actually breaking.
 MobWaterEvaluate(
 	A0, B0, A1, B1, A2, B2, A3, B3,
 	A4, B4, A5, B5, A6, B6, A7, B7,
 	SampleXY, Time,
-	Scales.y * BodyAmplitude, Scales.z * BodySpeed, Scales.w, Scales.x,
+	Scales.y * BodyAmplitude * Shoal.x, Scales.z * BodySpeed, Scales.w * Shoal.x, Scales.x,
 	Disp, Nrm, Fold);
 
-return Disp / EncodeScale + 0.5f;
+return (Disp * Shoal.y) / EncodeScale + 0.5f;
 """
 
 
@@ -2548,12 +2725,23 @@ def build_parity_probe():
     body = g.scalar_param(mat, 'BodyScales', 100.0, 'Probe', -4, 3,
                           'A body-s packed amplitude and speed, as the component writes it.')
 
-    inputs += ['SampleXY', 'Time', 'Scales', 'EncodeScale', 'BodyScales']
+    shoal = g.vector_param4(mat, 'ShoalScales', (1.0, 1.0, 0.0, 0.0), 'Probe', -4, 2,
+                            'How much taller the ground makes the wave, and how much of it survives '
+                            'the break. Ones are open water.')
+
+    shoal_xy = g.expr(mat, unreal.MaterialExpressionComponentMask, -3, 2)
+    shoal_xy.set_editor_property('r', True)
+    shoal_xy.set_editor_property('g', True)
+    shoal_xy.set_editor_property('b', False)
+    shoal_xy.set_editor_property('a', False)
+    g.link(shoal, '', shoal_xy, '')
+
+    inputs += ['SampleXY', 'Time', 'Scales', 'EncodeScale', 'BodyScales', 'Shoal']
 
     node = g.custom(mat, _CODE_PARITY, g.CMOT.CMOT_FLOAT3, inputs, [], -1, 8,
                     'The wave set, as the GPU sees it.', includes=INCLUDES)
 
-    for name, src in zip(inputs, sources + [sample_xy, time, scales, encode, body]):
+    for name, src in zip(inputs, sources + [sample_xy, time, scales, encode, body, shoal_xy]):
         g.link(src, '', node, name)
 
     g.link_property(mat, node, '', g.MP.MP_EMISSIVE_COLOR)
@@ -2836,6 +3024,9 @@ def build_all():
 
     snell_probe = build_snell_probe()
     g.log('  probe %s' % snell_probe.get_path_name())
+
+    surf_probe = build_surf_probe()
+    g.log('  probe %s' % surf_probe.get_path_name())
 
     probe = build_parity_probe()
     g.log('  probe %s' % probe.get_path_name())

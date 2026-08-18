@@ -190,9 +190,9 @@ void UMobWaterSpectrum::RecordBake(float InWindSpeed, float InWindDirection, flo
 namespace MobWaterCombined
 {
 	FMobWaterSample Evaluate(const FMobWaterWaveParams& Params, const UMobWaterSpectrum* Spectrum,
-		const FVector2f& SampleXY, float Time)
+		const FVector2f& SampleXY, float Time, const FMobWaterShoalField* Shoal)
 	{
-		FMobWaterSample Out = FMobWaterWaves::Evaluate(Params, SampleXY, Time);
+		FMobWaterSample Out = FMobWaterWaves::Evaluate(Params, SampleXY, Time, Shoal);
 
 		if (!Spectrum || !Spectrum->IsUsable())
 		{
@@ -217,21 +217,21 @@ namespace MobWaterCombined
 	}
 
 	FMobWaterSample Surface(const FMobWaterWaveParams& Params, const UMobWaterSpectrum* Spectrum,
-		const FVector2f& WorldXY, float Time)
+		const FVector2f& WorldXY, float Time, const FMobWaterShoalField* Shoal)
 	{
 		if (!Spectrum || !Spectrum->IsUsable())
 		{
-			return FMobWaterWaves::Surface(Params, WorldXY, Time);
+			return FMobWaterWaves::Surface(Params, WorldXY, Time, Shoal);
 		}
 
 		FVector2f Guess = WorldXY;
 		for (int32 Step = 0; Step < MobWaterWaveConstants::SurfaceIterations; ++Step)
 		{
-			const FMobWaterSample Walk = Evaluate(Params, Spectrum, Guess, Time);
+			const FMobWaterSample Walk = Evaluate(Params, Spectrum, Guess, Time, Shoal);
 			Guess = WorldXY - FVector2f(Walk.Displacement.X, Walk.Displacement.Y);
 		}
 
-		FMobWaterSample Out = Evaluate(Params, Spectrum, Guess, Time);
+		FMobWaterSample Out = Evaluate(Params, Spectrum, Guess, Time, Shoal);
 
 		Out.Displacement.X = 0.f;
 		Out.Displacement.Y = 0.f;

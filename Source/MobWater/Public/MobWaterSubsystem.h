@@ -169,6 +169,25 @@ public:
 	float GetExclusionAt(const FVector& Location) const;
 
 	/**
+	 * The obstacles the waves are currently climbing, as the surface was handed them.
+	 *
+	 * The published slots and not the registry, so a query and a vertex shoal against the same four
+	 * volumes. Which four those are follows the view, exactly as the carving does.
+	 */
+	const FMobWaterShoalField& GetShoalField() const { return ShoalField; }
+
+	/**
+	 * How much taller the ground under a point makes the waves there, and how much of them is left.
+	 *
+	 * The two numbers the vertex shader is handed, so a project can put spray, sound or a shove where
+	 * the water is actually breaking instead of guessing at it from the shoreline. Ones are open
+	 * water: nothing near enough to feel.
+	 */
+	UFUNCTION(BlueprintPure, Category="Water", meta=(WorldContext="WorldContextObject"))
+	static void GetWaveShoalAtLocation(const UObject* WorldContextObject, const FVector& Location,
+		float& OutGain, float& OutSurvives);
+
+	/**
 	 * Republishes exclusion immediately, centred where the caller says rather than on the view.
 	 *
 	 * For the parity check, which compares what the query answers against what the surface draws and
@@ -287,6 +306,9 @@ protected:
 
 	UPROPERTY(Transient)
 	TArray<TWeakObjectPtr<class UMobWaterExclusionComponent>> Exclusions;
+
+	/** What PublishExclusions last sent the surface, in the form a CPU query reads it. */
+	FMobWaterShoalField ShoalField;
 
 	/**
 	 * Publishes the volumes water is kept out of, nearest the view first.

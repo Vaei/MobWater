@@ -129,5 +129,5 @@ public:
 	 */
 	static FMobWaterInfo EvaluateWaterAtNative(const FMobWaterWaveParams& Params, const FVector& Location,
 		float StillSurfaceZ, float WaterDepth, float ShoreFade, float Time,
-		const UMobWaterSpectrum* Spectrum = nullptr);
+		const UMobWaterSpectrum* Spectrum = nullptr, const struct FMobWaterShoalField* Shoal = nullptr);
 };

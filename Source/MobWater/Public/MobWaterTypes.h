@@ -197,6 +197,20 @@ struct FMobWaterMaterialSet
  * Being full is what the packing here is for: FoamBands carries its separation in its fraction
  * because the pair is one concept, not because the slots were spare.
  */
+/**
+ * The range the shoreline foam slot's fraction is measured in.
+ *
+ * A range rather than the value, because the run up shares a slot with the foam depth and only a
+ * bounded number fits in a fraction. Four is a crest throwing the foam five times as far as it
+ * reaches between waves, which is past anything that reads as water.
+ *
+ * Duplicated as MOB_WATER_RUNUP_RANGE in MobWaterSurface.ush.
+ */
+namespace MobWaterFoamRunUp
+{
+	static constexpr float Range = 4.f;
+}
+
 namespace MobWaterData
 {
 	/** Linear RGB of the water at its shallowest. Occupies 0, 1 and 2. */
@@ -220,8 +234,18 @@ namespace MobWaterData
 	/** World units of water column over which the bed stops being visible at all. */
 	static constexpr int32 ClarityDepth = 7;
 
-	/** How far up from the bed foam reaches, in world units. 0 is no shoreline foam. */
+	/**
+	 * How far up from the bed foam reaches, in world units, with the run up in its fraction.
+	 *
+	 * Two values in one slot, which is what MobWaterUnpackShoreFoam splits: the whole part is the
+	 * depth and the fraction is the run up over MobWaterFoamRunUp::Range. Packed because the last
+	 * slot went and these two are one control - how far the waterline's foam reaches, and how much
+	 * further a crest throws it.
+	 */
 	static constexpr int32 ShoreFoamDepth = 8;
+
+	/** The same slot. How far a crest throws the foam rides in its fraction. */
+	static constexpr int32 ShoreFoamRunUp = 8;
 
 	/** Wave steepness at which crest foam starts. 1 is never. */
 	static constexpr int32 CrestFoamThreshold = 9;

@@ -35,7 +35,7 @@ None of the numbers below is the real cost. Water is a translucent plane and the
 <div class="tw"><table>
 <thead><tr><th></th><th>Vertex</th><th>Pixel</th><th>Samplers</th><th>Interpolators</th></tr></thead>
 <tbody>
-<tr><td><code>M_MobWater</code></td><td>937</td><td>1203</td><td>7</td><td>4</td></tr>
+<tr><td><code>M_MobWater</code></td><td>1055</td><td>1210</td><td>7</td><td>4</td></tr>
 <tr><td><code>M_MobWaterUnderwater</code></td><td>250</td><td>168</td><td>2</td><td>0</td></tr>
 <tr><td><code>MI_MobWaterUnderwater_Caustics</code></td><td>250</td><td>197</td><td>3</td><td>0</td></tr>
 <tr><td><code>MI_MobWaterUnderwater_Window</code></td><td>250</td><td>287</td><td>3</td><td>0</td></tr>
@@ -56,7 +56,7 @@ None of the numbers below is the real cost. Water is a translucent plane and the
 <p>Snell's window is 119 pixel instructions and no extra sampler, because it reads the sky through the tap the plane was going to spend anyway. The <b>capture</b> variants are <i>cheaper</i> in the shader than the sky ones - a long-latitude lookup is an <code>atan2</code> and an <code>acos</code>, the capture's projection is two divides - and far more expensive overall, because behind them is a second view of the scene. Read those rows as the cost of reading the window, not the cost of filling it.</p>
 
 <div class="note">
-The vertex count is high because the wave sum happens there: eight Gerstner waves, unrolled, plus the shore attenuation. It is paid per vertex of the surface mesh, so a lake's <b>Grid Resolution</b> and a river's <b>Segments Along</b> are vertex-shader settings as much as they are silhouette ones.
+The vertex count is high because the wave sum happens there: eight Gerstner waves, unrolled, plus the shore attenuation and the four volumes the waves shoal against. It is paid per vertex of the surface mesh, so a lake's <b>Grid Resolution</b> and a river's <b>Segments Along</b> are vertex-shader settings as much as they are silhouette ones.
 </div>
 
 <h2>Permutations</h2>

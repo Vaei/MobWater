@@ -40,6 +40,8 @@ HEADER = os.path.join(PLUGIN_ROOT, 'Source', 'MobWater', 'Public', 'MobWaterWave
 SHADER = os.path.join(PLUGIN_ROOT, 'Shaders', 'Public', 'MobWaterWaves.ush')
 TYPES = os.path.join(PLUGIN_ROOT, 'Source', 'MobWater', 'Public', 'MobWaterTypes.h')
 
+SURFACE_SHADER = os.path.join(PLUGIN_ROOT, 'Shaders', 'Public', 'MobWaterSurface.ush')
+
 SPECTRUM_HEADER = os.path.join(PLUGIN_ROOT, 'Source', 'MobWater', 'Public', 'MobWaterSpectrum.h')
 SPECTRUM_SHADER = os.path.join(PLUGIN_ROOT, 'Shaders', 'Public', 'MobWaterSpectrum.ush')
 
@@ -81,6 +83,9 @@ EXPECTED_INDICES = {
     'FadeDepth': 6,
     'ClarityDepth': 7,
     'ShoreFoamDepth': 8,
+    # The same float. The depth is the whole part in world units and how much further a crest throws
+    # the foam is the fraction, the primitive data being full at thirty six.
+    'ShoreFoamRunUp': 8,
     'CrestFoamThreshold': 9,
     'WaveAmplitude': 10,
     # The same float again. The amplitude is the whole part in hundredths and the speed is the
@@ -169,6 +174,9 @@ def check_constants():
     spectrum_header = _read(SPECTRUM_HEADER)
     spectrum_shader = _read(SPECTRUM_SHADER)
 
+    types = _read(TYPES)
+    surface = _read(SURFACE_SHADER)
+
     pairs = [
         ('Gravity', 'Gravity', 'MOB_WATER_GRAVITY', header, shader),
         ('MaxWaves', 'MaxWaves', 'MOB_WATER_MAX_WAVES', header, shader),
@@ -176,6 +184,16 @@ def check_constants():
         # What a body's packed wave fraction is measured in. Off, the amplitude still reads right
         # and every body runs at a speed nobody set, which reads as the wave preset being wrong.
         ('SpeedRange', 'SpeedRange', 'MOB_WATER_SPEED_RANGE', header, shader),
+        # How many obstacles the waves climb. Fewer here than the surface carves with and a query
+        # answers about surf against a rock the pixels are breaking on somewhere else.
+        ('ShoalSlots', 'ShoalSlots', 'MOB_WATER_SHOAL_SLOTS', header, shader),
+        # Where a shoaling wave collapses, and how tall it stands before it does. Either apart and
+        # the surface breaks its waves in a different place from the one buoyancy floats a hull at.
+        ('ShoalBreak', 'ShoalBreak', 'MOB_WATER_SHOAL_BREAK', header, shader),
+        ('ShoalFloor', 'ShoalFloor', 'MOB_WATER_SHOAL_FLOOR', header, shader),
+        # What the shoreline foam slot's fraction is measured in. Apart, the foam depth still reads
+        # right and every waterline surges by an amount nobody set.
+        ('FoamRunUpRange', 'Range', 'MOB_WATER_RUNUP_RANGE', types, surface),
         # Off by one and every tile boundary in the ocean carries a band of water from the wrong
         # frame, which is one texel wide and therefore looks like a compression artefact.
         ('Gutter', 'Gutter', 'MOB_WATER_SPECTRUM_GUTTER', spectrum_header, spectrum_shader),
@@ -286,21 +304,37 @@ PROBE_TOLERANCE = 0.01
 # cases, and every body simply runs at a height and a speed nobody typed.
 PROBE_BODY_SCALES = [(1.0, 1.0), (0.37, 0.62)]
 
+# Open water, a wave standing as tall as Green's law lets it, and one part way through breaking. The
+# middle one is the one that matters: at twice the height the steepness clamp is what decides the
+# answer, so a gain applied on the wrong side of that clamp parts the two implementations here and
+# nowhere else.
+PROBE_SHOALS = [(1.0, 1.0), (2.0, 1.0), (1.6, 0.35)]
 
-def _scaled_preset(preset, amplitude, speed):
-    """The same wave set with a body's own scales already in it.
+
+def _probe_cases():
+    """Every body scale against every shoal, so neither can hide the other."""
+    return [(body, shoal) for shoal in PROBE_SHOALS for body in PROBE_BODY_SCALES]
+
+
+def _scaled_preset(preset, amplitude, speed, gain=1.0):
+    """The same wave set with a body's own scales, and whatever it is shoaling on, already in it.
 
     Built fresh rather than by editing the asset's copy, because a struct read out of an asset can
     write back through and a verify pass has no business dirtying the preset it is checking.
+
+    The shoal gain enters through the two scales here for the same reason it does in the shader: it
+    has to meet the steepness clamp on the way past, so a wave standing twice as tall leans as far
+    as one wave may lean and no further.
     """
     source = preset.get_editor_property('waves')
 
     params = unreal.MobWaterWaveParams()
     params.set_editor_property('waves', list(source.get_editor_property('waves')))
     params.set_editor_property('amplitude_scale',
-                              source.get_editor_property('amplitude_scale') * amplitude)
+                              source.get_editor_property('amplitude_scale') * amplitude * gain)
     params.set_editor_property('speed_scale', source.get_editor_property('speed_scale') * speed)
-    params.set_editor_property('choppiness_scale', source.get_editor_property('choppiness_scale'))
+    params.set_editor_property('choppiness_scale',
+                               source.get_editor_property('choppiness_scale') * gain)
 
     scaled = unreal.new_object(unreal.MobWaterWavePreset)
     scaled.set_editor_property('waves', params)
@@ -391,14 +425,17 @@ def check_wave_parity():
     moved = False
     drew = False
 
-    for wanted_amplitude, wanted_speed in PROBE_BODY_SCALES:
+    for (wanted_amplitude, wanted_speed), (gain, survives) in _probe_cases():
         # Through the pack and back out, because that is all the shader ever sees. Comparing against
         # what was asked for would fail on the quantisation rather than on the maths.
         packed = unreal.MobWaterStatics.pack_body_wave_scales(wanted_amplitude, wanted_speed)
         amplitude, speed = unreal.MobWaterStatics.unpack_body_wave_scales(packed)
 
         material.set_scalar_parameter_value('BodyScales', packed)
-        scaled = _scaled_preset(preset, amplitude, speed)
+        material.set_vector_parameter_value(
+            'ShoalScales', unreal.LinearColor(gain, survives, 0.0, 0.0))
+
+        scaled = _scaled_preset(preset, amplitude, speed, gain)
 
         for time in PROBE_TIMES:
             material.set_scalar_parameter_value('Time', time)
@@ -427,8 +464,12 @@ def check_wave_parity():
                         PROBE_ORIGIN[0] + (u - 0.5) * PROBE_EXTENT,
                         PROBE_ORIGIN[1] + (v - 0.5) * PROBE_EXTENT)
 
-                    cpu, _normal, _fold = unreal.MobWaterStatics.evaluate_wave_preset(
+                    raw, _normal, _fold = unreal.MobWaterStatics.evaluate_wave_preset(
                         scaled, sample, time)
+
+                    # What is left of the wave after the break multiplies the finished displacement,
+                    # not the amplitude, which is where the master and the query both apply it.
+                    cpu = unreal.Vector(raw.x * survives, raw.y * survives, raw.z * survives)
 
                     delta = max(abs(cpu.x - gpu.x), abs(cpu.y - gpu.y), abs(cpu.z - gpu.z))
                     worst = max(worst, delta)
@@ -442,11 +483,13 @@ def check_wave_parity():
 
                     if delta > PROBE_TOLERANCE and len(failures) < 4:
                         failures.append(
-                            'wave parity at ({0:.0f}, {1:.0f}) t={2} at amplitude {3} speed {4}: '
+                            'wave parity at ({0:.0f}, {1:.0f}) t={2} at amplitude {3} speed {4} '
+                            'shoaling {12} surviving {13}: '
                             'CPU ({5:.4f}, {6:.4f}, {7:.4f}) GPU ({8:.4f}, {9:.4f}, {10:.4f}), off '
                             'by {11:.4f}cm. MobWaterWaves.h and MobWaterWaves.ush have parted.'
                             .format(sample.x, sample.y, time, amplitude, speed,
-                                    cpu.x, cpu.y, cpu.z, gpu.x, gpu.y, gpu.z, delta))
+                                    cpu.x, cpu.y, cpu.z, gpu.x, gpu.y, gpu.z, delta,
+                                    gain, survives))
 
     if not drew:
         return ['the probe material drew nothing - every texel came back as an untouched zero, '
@@ -462,8 +505,9 @@ def check_wave_parity():
                         'nothing. Check that %s has waves in it.' % PRESET_PATH)
 
     if not failures:
-        _log('  ok  {0} points across {1} instants and {2} body scales, worst disagreement '
-             '{3:.5f}cm'.format(compared, len(PROBE_TIMES), len(PROBE_BODY_SCALES), worst))
+        _log('  ok  {0} points across {1} instants, {2} body scales and {3} shoals, worst '
+             'disagreement {4:.5f}cm'.format(compared, len(PROBE_TIMES), len(PROBE_BODY_SCALES),
+                                             len(PROBE_SHOALS), worst))
 
     return failures
 
@@ -685,9 +729,11 @@ EXCLUSION_MESH_SCALE = 600.0
 EXCLUSION_MESH_SOFTNESS = 150.0
 
 
-def _spawn_exclusion(world, shape, offset, extent, softness, strength=1.0, yaw=0.0, scale=1.0):
-    """One volume, placed relative to the probe's origin."""
-    location = unreal.Vector(EXCLUSION_ORIGIN[0] + offset[0], EXCLUSION_ORIGIN[1] + offset[1], 0.0)
+def _spawn_exclusion(world, shape, offset, extent, softness, strength=1.0, yaw=0.0, scale=1.0,
+                     origin=None):
+    """One volume, placed relative to an origin, which is the exclusion probe's unless it is given."""
+    origin = origin if origin is not None else EXCLUSION_ORIGIN
+    location = unreal.Vector(origin[0] + offset[0], origin[1] + offset[1], 0.0)
 
     actor = unreal.EditorLevelLibrary.spawn_actor_from_class(
         unreal.MobWaterExclusion, location, unreal.Rotator(0.0, 0.0, yaw))
@@ -1146,6 +1192,362 @@ def check_snell_window():
     return failures
 
 
+SURF_PROBE_PATH = '/MobWater/Materials/M_MobWaterSurfProbe'
+
+# How finely the shoal is walked. Across is one whole run from the face out to open water; down is
+# the fold a crest arrives with, which is what the run up is measured against.
+SURF_STEPS = 64
+
+# The volume the geometry half is checked against: a rectangle turned off the axes, so a rotation
+# dropped from one of the two implementations shows up as a distance rather than as nothing.
+SURF_HALF = (400.0, 250.0)
+SURF_YAW = 0.6
+SURF_EXTENT = 4000.0
+SURF_DISTANCE = 1000.0
+SURF_RUN_UP = 1.5
+
+
+def _shoal_expected(t):
+    """Green-s law and the break, longhand.
+
+    Written out rather than called, for the same reason the Snell check is: the point is to compare
+    the shader against the physics, and reaching into the plugin for the answer compares it against
+    itself.
+    """
+    floor = 0.0625
+    gain = max(t, floor) ** -0.25
+
+    ratio = min(max(t / 0.15, 0.0), 1.0)
+    survives = ratio * ratio * (3.0 - 2.0 * ratio)
+
+    return gain, survives
+
+
+def _volume_inside_expected(x, y, half, yaw, is_rect):
+    """How far inside a turned volume a point is, negative outside it."""
+    local_x = x * math.cos(yaw) + y * math.sin(yaw)
+    local_y = -x * math.sin(yaw) + y * math.cos(yaw)
+
+    if not is_rect:
+        return half[0] - math.hypot(local_x, local_y)
+
+    return min(half[0] - abs(local_x), half[1] - abs(local_y))
+
+
+def check_surf():
+    """Holds the surf the shader draws against the surf the maths says there is.
+
+    Two things, and they fail differently. The profile is Green-s law and where the wave collapses,
+    which decides whether a sea rises into a cliff or merely stops at it. The geometry is where that
+    profile is read, which decides whether it happens at the cliff or somewhere off to one side.
+
+    The last assertion is about the shape rather than the numbers. A profile that agreed to six
+    decimals and never rose would be a shoreline fade with extra steps, and surf is the peak.
+    """
+    probe = unreal.load_asset(SURF_PROBE_PATH)
+    if probe is None:
+        return ['Surf probe %s is missing. Run Water > Generate Materials.' % SURF_PROBE_PATH]
+
+    world = unreal.EditorLevelLibrary.get_editor_world()
+    if world is None:
+        return ['no editor world to render the probe in.']
+
+    target = unreal.RenderingLibrary.create_render_target2d(
+        world, SURF_STEPS, SURF_STEPS, unreal.TextureRenderTargetFormat.RTF_RGBA32F)
+    if target is None:
+        return ['could not create a render target for the probe.']
+
+    failures = []
+
+    # Read out of the header rather than written down again, so the one place it is defined stays
+    # the one place. check_constants has already held it against the shader by the time this runs.
+    run_up_range = _cpp_constant(_read(TYPES), 'Range')
+    if run_up_range is None:
+        return ['MobWaterFoamRunUp::Range is not in MobWaterTypes.h.']
+
+    material = unreal.MaterialLibrary.create_dynamic_material_instance(world, probe)
+    material.set_scalar_parameter_value('RunUp', SURF_RUN_UP)
+    material.set_scalar_parameter_value('Extent', SURF_EXTENT)
+    material.set_scalar_parameter_value('Yaw', SURF_YAW)
+    material.set_scalar_parameter_value('Distance', SURF_DISTANCE)
+    material.set_vector_parameter_value(
+        'Half', unreal.LinearColor(SURF_HALF[0], SURF_HALF[1], 0.0, 0.0))
+
+    # --- the profile --------------------------------------------------------
+    material.set_scalar_parameter_value('Mode', 0.0)
+    material.set_scalar_parameter_value('Shape', 1.0)
+    unreal.RenderingLibrary.draw_material_to_render_target(world, target, material)
+
+    worst_gain = 0.0
+    worst_survives = 0.0
+    worst_run_up = 0.0
+
+    peak = 0.0
+    peak_at = 0.0
+
+    for ty in range(SURF_STEPS):
+        fold = (ty + 0.5) / SURF_STEPS
+
+        for tx in range(SURF_STEPS):
+            t = (tx + 0.5) / SURF_STEPS
+
+            pixel = unreal.RenderingLibrary.read_render_target_raw_pixel(world, target, tx, ty)
+            gain, survives = _shoal_expected(t)
+
+            # Each channel left the probe biased into zero to one, because a UI domain material
+            # clamps its output there however the target is formatted.
+            worst_gain = max(worst_gain, abs((pixel.r + 1.0) - gain))
+            worst_survives = max(worst_survives, abs(pixel.g - survives))
+            worst_run_up = max(
+                worst_run_up, abs((pixel.b * run_up_range + 1.0) - (1.0 + fold * SURF_RUN_UP)))
+
+            if gain * survives > peak:
+                peak = gain * survives
+                peak_at = t
+
+    if worst_gain > 1e-4:
+        failures.append('the shoal gain is out by {0:.6f} against Green-s law.'.format(worst_gain))
+    else:
+        _log('  ok  shoal gain matches the fourth root of the depth to {0:.6f}'.format(worst_gain))
+
+    if worst_survives > 1e-4:
+        failures.append('the break is out by {0:.6f}.'.format(worst_survives))
+    else:
+        _log('  ok  the wave collapses over the last 15 per cent of its shoal, to {0:.6f}'
+             .format(worst_survives))
+
+    if worst_run_up > 1e-4:
+        failures.append('the run up is out by {0:.6f}.'.format(worst_run_up))
+    else:
+        _log('  ok  a crest widens the foam band to {0:.6f}'.format(worst_run_up))
+
+    # A wave that only ever shrank towards the rock would be a shoreline fade with extra steps.
+    if peak < 1.2:
+        failures.append('a shoaling wave peaks at {0:.2f} times its open water height, which is not '
+                        'surf - it is a wave lying down.'.format(peak))
+    else:
+        _log('  ok  a shoaling wave stands {0:.2f} times as tall, {1:.0f} per cent of the way in'
+             .format(peak, peak_at * 100.0))
+
+    # --- the geometry -------------------------------------------------------
+    for shape, is_rect in ((0.0, False), (1.0, True)):
+        material.set_scalar_parameter_value('Mode', 1.0)
+        material.set_scalar_parameter_value('Shape', shape)
+        unreal.RenderingLibrary.draw_material_to_render_target(world, target, material)
+
+        worst_inside = 0.0
+        worst_t = 0.0
+
+        for ty in range(SURF_STEPS):
+            for tx in range(SURF_STEPS):
+                u = (tx + 0.5) / SURF_STEPS
+                v = (ty + 0.5) / SURF_STEPS
+
+                x = (u - 0.5) * SURF_EXTENT
+                y = (v - 0.5) * SURF_EXTENT
+
+                inside = _volume_inside_expected(x, y, SURF_HALF, SURF_YAW, is_rect)
+                expected_t = min(max(-inside / SURF_DISTANCE, 0.0), 1.0)
+
+                pixel = unreal.RenderingLibrary.read_render_target_raw_pixel(world, target, tx, ty)
+
+                worst_inside = max(worst_inside, abs((pixel.g - 0.5) * SURF_EXTENT * 2.0 - inside))
+                worst_t = max(worst_t, abs(pixel.r - expected_t))
+
+        name = 'a rectangle' if is_rect else 'a disc'
+
+        # A centimetre over a forty metre frame, because what is compared is a distance in world
+        # units and a thirty two bit float has about seven digits to hold one in.
+        if worst_inside > 1.0:
+            failures.append('{0} measures its edge {1:.4f} away from where the CPU puts it.'
+                            .format(name, worst_inside))
+        elif worst_t > 1e-3:
+            failures.append('{0} normalises its shoal {1:.6f} away from the CPU.'.format(name, worst_t))
+        else:
+            _log('  ok  {0} shoals where the CPU says it does, to {1:.4f} cm'.format(name, worst_inside))
+
+    return failures
+
+
+SHOAL_ORIGIN = (-140000.0, 260000.0)
+
+# A reef: it shoals waves and holds no water back, so what the query answers near it is the wave and
+# nothing else. A carving volume would take the water away as well, and the two would be impossible
+# to tell apart in one number.
+#
+# Large, and its run larger, because the measurement below is taken around rings. A small reef's
+# innermost ring is shorter than the swell crossing it, and a handful of samples spread over less
+# than one wavelength say more about where the crests happened to fall than about their height.
+SHOAL_RADIUS = 4000.0
+SHOAL_RUN = 8000.0
+
+# Where along the run to look, out at sea first. The last is up against the face, past where the wave
+# has collapsed.
+SHOAL_STOPS = [1.0, 0.6, 0.3, 0.15, 0.06, 0.02]
+
+# How many points to take around each ring. Every one is the same distance from the reef and so the
+# same way through its shoal, which means what varies around a ring is the phase - and that is how
+# the height a wave reaches there is measured without being able to move the clock.
+SHOAL_SAMPLES = 128
+
+# The sea the reef is put in: the authored swell alone, at a fraction of its height.
+#
+# The baked spectrum is cleared because it does not shoal and cannot - Phillips is a deep water sea
+# state - so leaving it in would dilute the very ratio being measured with a wave that is not part of
+# it. The amplitude is dropped because a Gerstner wave throws the surface sideways as far as it
+# throws it up, and the query walks back over that: a swell taller than the surf zone is wide is
+# answered by a wave that started outside it, which is true of the vertex shader as well and would
+# be measuring the walk rather than the break.
+SHOAL_AMPLITUDE = 0.4
+
+
+def _shoal_ring(world, still_z, t):
+    """How far the surface stands off its rest height around one ring, and how hard it folds.
+
+    Averaged rather than taken at its largest. A maximum over a ring is decided by whichever single
+    sample walked furthest back down the shoal, which near the face is a sample answered by a wave
+    that started outside the break - so the one number a maximum reports is the one point that got
+    away. A mean over a ring of scattered phases is the height of the swell crossing it.
+    """
+    radius = SHOAL_RADIUS + t * SHOAL_RUN
+
+    rise = 0.0
+    fold = 0.0
+    counted = 0
+
+    for index in range(SHOAL_SAMPLES):
+        angle = (index + 0.5) * (2.0 * math.pi / SHOAL_SAMPLES)
+
+        location = unreal.Vector(
+            SHOAL_ORIGIN[0] + math.cos(angle) * radius,
+            SHOAL_ORIGIN[1] + math.sin(angle) * radius,
+            still_z)
+
+        info = unreal.MobWaterStatics.get_water_info_at_location(world, location)
+        if not info.valid:
+            continue
+
+        rise += abs(info.surface_z - still_z)
+        fold += info.fold
+        counted += 1
+
+    if counted == 0:
+        return 0.0, 0.0
+
+    return rise / counted, fold / counted
+
+
+def _shoal_rings(world, still_z):
+    """Every ring, measured the same way, so two passes over them can be divided."""
+    return [_shoal_ring(world, still_z, t) for t in SHOAL_STOPS]
+
+
+def check_shoal_query():
+    """Places a reef in an ocean and asks the query what the waves over it are doing.
+
+    The surf probe holds one piece of arithmetic written twice, and this does not. It puts a real
+    volume in a real level, lets the subsystem publish it exactly as it would on any frame, and reads
+    the answer back through the same call buoyancy makes - so what it catches is a break anywhere
+    along that path: a shoal distance that never left the component, a slot published without one, a
+    query handed the registry rather than what the surface was given.
+
+    Measured around rings rather than over time, because the phase varies around a ring and the clock
+    cannot be moved from here. Every ring is then read twice, once with the shoal and once without,
+    and only the ratio between the two is asserted - a ring near the reef holds fewer wavelengths than
+    one far out, and dividing a ring by itself is what takes that difference out. The second pass is
+    also the guard that says shoaling is opt in.
+    """
+    world = unreal.EditorLevelLibrary.get_editor_world()
+    if world is None:
+        return ['no editor world to place a reef in.']
+
+    centre = unreal.Vector(SHOAL_ORIGIN[0], SHOAL_ORIGIN[1], 0.0)
+
+    failures = []
+    spawned = []
+
+    try:
+        ocean = unreal.EditorLevelLibrary.spawn_actor_from_class(
+            unreal.MobWaterOcean, unreal.Vector(SHOAL_ORIGIN[0], SHOAL_ORIGIN[1], 0.0))
+        if ocean is None:
+            return ['could not place an ocean in the editor world.']
+
+        spawned.append(ocean)
+        still_z = ocean.get_actor_location().z
+
+        water = ocean.get_editor_property('water')
+        water.set_editor_property('spectrum', None)
+        water.set_editor_property('wave_amplitude', SHOAL_AMPLITUDE)
+        water.apply_surface()
+
+        reef = _spawn_exclusion(
+            world, unreal.MobWaterExclusionShape.DISC, (0.0, 0.0),
+            (SHOAL_RADIUS, SHOAL_RADIUS), 20.0, strength=0.0, origin=SHOAL_ORIGIN)
+        if reef is None:
+            return ['could not place a reef in the editor world.']
+
+        spawned.append(reef)
+        component = reef.get_editor_property('exclusion')
+
+        component.set_editor_property('shoal_distance', 0.0)
+        unreal.MobWaterSubsystem.refresh_exclusions(world, centre)
+        flat = _shoal_rings(world, still_z)
+
+        component.set_editor_property('shoal_distance', SHOAL_RUN)
+        unreal.MobWaterSubsystem.refresh_exclusions(world, centre)
+        shoaled = _shoal_rings(world, still_z)
+
+        if flat[0][0] <= 1e-3:
+            return ['the ocean is flat out at sea, so there was no wave to shoal.']
+
+        heights = [pair[0] / max(base[0], 1e-4) for pair, base in zip(shoaled, flat)]
+        folds = [pair[1] / max(base[1], 1e-4) for pair, base in zip(shoaled, flat)]
+
+        # Out at sea the reef is not there yet, and the two passes have to agree that it is not.
+        if abs(heights[0] - 1.0) > 0.05:
+            failures.append('a shoal reaches {0:.0f} per cent of the way out to open water, where it '
+                            'should not be felt at all.'.format(abs(heights[0] - 1.0) * 100.0))
+        else:
+            _log('  ok  out past the run the reef changes nothing, to {0:.0f} per cent'
+                 .format(abs(heights[0] - 1.0) * 100.0))
+
+        peak = max(heights)
+        peak_at = SHOAL_STOPS[heights.index(peak)]
+
+        if peak < 1.3:
+            failures.append('a wave crossing the reef peaks at {0:.2f} times the height it has '
+                            'without one, which is a wave that never felt the ground.'.format(peak))
+        elif peak_at > 0.35:
+            failures.append('the wave peaks {0:.0f} per cent of the way out, which is open water '
+                            'rather than a break.'.format(peak_at * 100.0))
+        else:
+            _log('  ok  the query answers {0:.2f} times that height at {1:.0f} per cent of the run in'
+                 .format(peak, peak_at * 100.0))
+
+        if heights[-1] > 0.35:
+            failures.append('the wave still stands {0:.2f} of its unshoaled height against the reef, '
+                            'so it is not breaking on it.'.format(heights[-1]))
+        else:
+            _log('  ok  it has fallen to {0:.2f} of that against the face'.format(heights[-1]))
+
+        if max(folds) <= 1.05:
+            failures.append('the surface folds no harder over the reef than it does without one, so '
+                            'nothing there will break white or throw a surf event.')
+        else:
+            _log('  ok  it folds {0:.2f} times as hard where it stands tallest, which is what crest '
+                 'foam and a surf point both read'.format(max(folds)))
+    finally:
+        for actor in spawned:
+            if actor:
+                unreal.EditorLevelLibrary.destroy_actor(actor)
+
+        # Left published, every body of water in the level goes on shoaling against a reef that is no
+        # longer there.
+        unreal.MobWaterSubsystem.refresh_exclusions(world, centre)
+
+    return failures
+
+
 def run():
     """Every check. Returns True when they all pass."""
     _log('Verifying contract')
@@ -1173,6 +1575,18 @@ def run():
         failures += check_snell_window()
     else:
         _log('  --  skipped: needs the editor to render the probe.')
+
+    _log(' waves shoaling and breaking on what stands in them')
+    if unreal:
+        failures += check_surf()
+    else:
+        _log('  --  skipped: needs the editor to render the probe.')
+
+    _log(' a reef in an ocean, as the query answers it')
+    if unreal:
+        failures += check_shoal_query()
+    else:
+        _log('  --  skipped: needs the editor to place a reef.')
 
     _log(' numeric CPU and GPU wave parity')
     if unreal:

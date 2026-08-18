@@ -4,11 +4,18 @@
 
 #include "CoreMinimal.h"
 #include "MobWaterTypes.h"
+#include "MobWaterWaves.h"
 #include "Components/SceneComponent.h"
 #include "MobWaterExclusionComponent.generated.h"
 
 /** How many exclusion volumes the surface evaluates. Matches MOB_WATER_EXCLUSIONS in the shader. */
 #define MOB_WATER_EXCLUSION_SLOTS 4
+
+// The waves shoal against the same slots they are carved by, so one count cannot move without the
+// other. Nothing would fail if they parted: a query would simply shoal against a volume the surface
+// is not drawing, which is the failure this whole file is arranged to avoid.
+static_assert(MOB_WATER_EXCLUSION_SLOTS == MobWaterWaveConstants::ShoalSlots,
+	"The exclusion slots and the shoal slots are the same slots.");
 
 /** How many mesh silhouettes the ripple field's spare channel carries. Matches the step material. */
 #define MOB_WATER_MESH_EXCLUSION_SLOTS 4
@@ -75,6 +82,23 @@ public:
 	/** How far in from the edge the water fades out rather than stopping, in world units. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Exclusion", meta=(ClampMin="0.0", ForceUnits="cm"))
 	float EdgeSoftness = 20.f;
+
+	/**
+	 * How far out from this volume a wave feels the ground coming up under it. 0 is no surf.
+	 *
+	 * Waves climbing towards it rise as the fourth root of what is left of the run, lean as they
+	 * rise, go white where they lean hardest, and die against the face. Set it to the distance over
+	 * which the sea would actually shallow towards this thing rather than to its size: a headland
+	 * gathers a swell over tens of metres, a harbour wall over a few.
+	 *
+	 * Independent of Strength, so a reef is a volume that shoals waves and holds no water back at
+	 * all - which is exactly what a sandbar under a metre of sea is.
+	 *
+	 * Not available on a mesh, and cannot be. A mesh outline is a texture, and how tall a wave
+	 * stands is decided in the vertex shader, which does not read one.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Exclusion", meta=(ClampMin="0.0", ForceUnits="cm", EditCondition="Shape != EMobWaterExclusionShape::Mesh"))
+	float ShoalDistance = 0.f;
 
 	/** Whether this also stops things being counted as submerged inside it. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Exclusion")

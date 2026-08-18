@@ -140,6 +140,7 @@ void UMobWaterComponent::ApplyLookPreset()
 
 	bFoam = LookPreset->bFoam;
 	ShoreFoamDepth = LookPreset->ShoreFoamDepth;
+	ShoreFoamRunUp = LookPreset->ShoreFoamRunUp;
 	CrestFoamThreshold = LookPreset->CrestFoamThreshold;
 	FoamNoiseAmount = LookPreset->FoamNoiseAmount;
 	FoamOpacity = LookPreset->FoamOpacity;
@@ -198,6 +199,7 @@ void UMobWaterComponent::CaptureLookPreset(UMobWaterLookPreset* Preset) const
 
 	Preset->bFoam = bFoam;
 	Preset->ShoreFoamDepth = ShoreFoamDepth;
+	Preset->ShoreFoamRunUp = ShoreFoamRunUp;
 	Preset->CrestFoamThreshold = CrestFoamThreshold;
 	Preset->FoamNoiseAmount = FoamNoiseAmount;
 	Preset->FoamOpacity = FoamOpacity;
@@ -298,7 +300,14 @@ void UMobWaterComponent::ApplySurface()
 	// Not capped against the body's depth. That cap was added when foam appeared to cover whole
 	// ponds, and the cause turned out to be elsewhere - all it does now is stop anyone deliberately
 	// running a wide foam margin, which is exactly what banded stylized foam needs.
-	WriteWaterData(MobWaterData::ShoreFoamDepth, bFoam ? ShoreFoamDepth : 0.f);
+	// Depth in whole world units with the run up in the fraction, which MobWaterUnpackShoreFoam
+	// splits. A centimetre of resolution on a line tens of them wide is finer than anyone sets it.
+	const float FoamDepth = FMath::RoundToFloat(FMath::Max(bFoam ? ShoreFoamDepth : 0.f, 0.f));
+	const float Surge = FMath::Min(
+		FMath::Clamp(bFoam ? ShoreFoamRunUp : 0.f, 0.f, MobWaterFoamRunUp::Range) / MobWaterFoamRunUp::Range,
+		0.9995f);
+
+	WriteWaterData(MobWaterData::ShoreFoamDepth, FoamDepth + Surge);
 	// Edge line width and foam opacity share a slot: hundredths in the whole part, opacity in the
 	// fraction. Held under one so the width still floors out of it.
 	const float EdgeWidth = FMath::RoundToFloat(FMath::Clamp(EdgeFoamWidth, 0.f, 1.f) * 100.f);
@@ -541,7 +550,8 @@ FMobWaterInfo UMobWaterComponent::GetWaterInfoAtLocation(const FVector& Location
 		Depth,
 		GetShoreFade(Location),
 		Subsystem->GetWaterTime(),
-		GetSpectrum());
+		GetSpectrum(),
+		&Subsystem->GetShoalField());
 
 	Info.FlowVelocity = GetWorldFlowVelocity();
 

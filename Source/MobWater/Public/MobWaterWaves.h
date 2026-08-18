@@ -49,7 +49,74 @@ namespace MobWaterWaveConstants
 	 * fraction about three ten thousandths of resolution, which is finer than the control's own step.
 	 */
 	static constexpr float SpeedRange = 5.f;
+
+	/** How many obstacles a body's waves shoal against. The same four the surface carves with. */
+	static constexpr int32 ShoalSlots = 4;
+
+	/**
+	 * How far into its shoal a wave has to be before it collapses, as a fraction of that shoal.
+	 *
+	 * A fraction rather than a distance so the surf zone scales with the run: a headland that
+	 * gathers a wave over fifty metres breaks it over the last seven, a harbour wall that gathers it
+	 * over five breaks it over the last one.
+	 */
+	static constexpr float ShoalBreak = 0.15f;
+
+	/**
+	 * The shallowest a shoal reads as, which is what caps how tall a shoaling wave can stand.
+	 *
+	 * Green's law has no bottom - the fourth root of a depth going to zero goes to infinity - and a
+	 * real wave has broken long before it gets there. A sixteenth is two to the fourth, so the
+	 * tallest a shoaling wave stands is twice what it was out at sea.
+	 */
+	static constexpr float ShoalFloor = 0.0625f;
 }
+
+/**
+ * The obstacles a body's waves climb, exactly as the shader is handed them.
+ *
+ * The four published slots and no more, deliberately. The surface evaluates the nearest four and a
+ * query that considered every volume in the level would answer about surf the pixels are not
+ * drawing, which is worse than answering about none.
+ *
+ * A mesh outline is not in here and cannot be. Its shape lives in a texture, and a vertex shader
+ * reading a texture to know how tall to stand is a dependency this surface does not have.
+ */
+struct MOBWATER_API FMobWaterShoalField
+{
+	/** (CentreX, CentreY, HalfX, HalfY) per slot, matching ExclusionA in the collection. */
+	FVector4f A[MobWaterWaveConstants::ShoalSlots];
+
+	/** (CosYaw, SinYaw, ShapeFlag, Strength) per slot, matching ExclusionB. */
+	FVector4f B[MobWaterWaveConstants::ShoalSlots];
+
+	/** How far out from each volume a wave feels it, in world units. 0 is a volume that makes no surf. */
+	float Distance[MobWaterWaveConstants::ShoalSlots];
+
+	FMobWaterShoalField()
+	{
+		for (int32 Slot = 0; Slot < MobWaterWaveConstants::ShoalSlots; ++Slot)
+		{
+			A[Slot] = FVector4f(0.f, 0.f, 1.f, 1.f);
+			B[Slot] = FVector4f(1.f, 0.f, 0.f, 0.f);
+			Distance[Slot] = 0.f;
+		}
+	}
+
+	/** Whether anything here shoals at all, so a level with no surf in it skips the whole evaluation. */
+	FORCEINLINE bool IsEmpty() const
+	{
+		for (int32 Slot = 0; Slot < MobWaterWaveConstants::ShoalSlots; ++Slot)
+		{
+			if (Distance[Slot] > 0.f)
+			{
+				return false;
+			}
+		}
+
+		return true;
+	}
+};
 
 /**
  * A body's own wave amplitude and wave speed, in one float.
@@ -161,6 +228,16 @@ struct FMobWaterSample
 
 	/** How far the surface is folding, 0 flat and 1 about to cross itself. */
 	float Fold = 0.f;
+
+	/**
+	 * How much of the wave is left after the obstacle it broke on, 1 out at sea and 0 on the face.
+	 *
+	 * Reported rather than applied, because it multiplies the finished displacement and not the
+	 * amplitude the wave was evaluated at. A Gerstner wave's sideways throw does not depend on its
+	 * height, so a wave taken to nothing through its amplitude alone still slides the surface
+	 * across the rock it just died on.
+	 */
+	float Shoal = 1.f;
 };
 
 /**
@@ -215,14 +292,85 @@ struct MOBWATER_API FMobWaterWaves
 	}
 
 	/**
+	 * How far inside an analytic volume a point is, negative outside it.
+	 *
+	 * Shared by the water a volume keeps out and the waves it shoals, so the edge one measures from
+	 * is the edge the other one does. MobWaterVolumeInside in MobWaterWaves.ush is its twin.
+	 */
+	static FORCEINLINE float VolumeInside(const FVector2f& WorldXY, const FVector4f& A, const FVector4f& B)
+	{
+		const FVector2f Offset = WorldXY - FVector2f(A.X, A.Y);
+
+		const FVector2f Local(
+			Offset.X * B.X + Offset.Y * B.Y,
+			-Offset.X * B.Y + Offset.Y * B.X);
+
+		return B.Z < 0.5f
+			? A.Z - Local.Size()
+			: FMath::Min(A.Z - FMath::Abs(Local.X), A.W - FMath::Abs(Local.Y));
+	}
+
+	/**
+	 * Where a point sits in the nearest obstacle's shoal: 0 against a face, 1 out past every run.
+	 *
+	 * A fraction of each volume's own shoal rather than a distance in centimetres, because the four
+	 * are compared against each other. A headland gathering a wave over fifty metres is not further
+	 * off than a harbour wall gathering it over five, it is earlier in the same climb.
+	 */
+	static FORCEINLINE float ShoalNormalised(const FMobWaterShoalField& Field, const FVector2f& WorldXY)
+	{
+		float Out = 1.f;
+
+		for (int32 Slot = 0; Slot < MobWaterWaveConstants::ShoalSlots; ++Slot)
+		{
+			if (Field.Distance[Slot] <= 0.f)
+			{
+				continue;
+			}
+
+			const float Outside = -VolumeInside(WorldXY, Field.A[Slot], Field.B[Slot]);
+			Out = FMath::Min(Out, FMath::Clamp(Outside / Field.Distance[Slot], 0.f, 1.f));
+		}
+
+		return Out;
+	}
+
+	/**
+	 * What ground coming up under a wave does to it.
+	 *
+	 * Green's law: a wave entering shallow water carries the same energy flux through a shorter
+	 * column, so its height rises as the fourth root of the depth it is losing. Distance to the
+	 * obstacle stands in for that depth, because a vertex shader cannot read a bed - and neither can
+	 * a dedicated server, which is the constraint that actually decides it.
+	 *
+	 * Gain multiplies the amplitude and the choppiness together, and that pairing is the whole
+	 * thing. A crest that rises without leaning is a larger sine, and the fold crest foam is cut
+	 * from never moves; leaning as it rises, it goes white at the break on its own.
+	 */
+	static FORCEINLINE void ShoalScales(float T, float& OutGain, float& OutSurvives)
+	{
+		OutGain = 1.f / FMath::Sqrt(FMath::Sqrt(FMath::Max(T, MobWaterWaveConstants::ShoalFloor)));
+		OutSurvives = ShoreAttenuation(T, MobWaterWaveConstants::ShoalBreak);
+	}
+
+	/**
 	 * The surface at a point that started at SampleXY.
 	 *
 	 * This is the forward map, and the one thing the vertex shader and this file both implement.
 	 * Everything else here is built out of it, so parity between CPU and GPU is a test of this alone.
 	 */
-	static FMobWaterSample Evaluate(const FMobWaterWaveParams& Params, const FVector2f& SampleXY, float Time)
+	static FMobWaterSample Evaluate(const FMobWaterWaveParams& Params, const FVector2f& SampleXY, float Time,
+		const FMobWaterShoalField* Shoal = nullptr)
 	{
 		FMobWaterSample Out;
+
+		// Worked out here rather than by the caller because the walk back in Surface moves the point
+		// this is asked about, and the vertex it has to agree with shoals at where it started.
+		float Gain = 1.f;
+		if (Shoal && !Shoal->IsEmpty())
+		{
+			ShoalScales(ShoalNormalised(*Shoal, SampleXY), Gain, Out.Shoal);
+		}
 
 		const int32 Count = FMath::Min(Params.Waves.Num(), MobWaterWaveConstants::MaxWaves);
 		if (Count <= 0)
@@ -238,7 +386,7 @@ struct MOBWATER_API FMobWaterWaves
 
 			const FVector2f Dir = Wave.Direction.GetSafeNormal();
 			const float K = WaveNumber(Wave);
-			const float Amplitude = Wave.Amplitude * Params.AmplitudeScale;
+			const float Amplitude = Wave.Amplitude * Params.AmplitudeScale * Gain;
 
 			const float WavePhase = Phase(Wave, Dir, SampleXY, Time, Params.SpeedScale);
 			const float SinPhase = FMath::Sin(WavePhase);
@@ -247,7 +395,7 @@ struct MOBWATER_API FMobWaterWaves
 			// Steepness is shared out across the set rather than applied per wave, so adding a ninth
 			// wave to a calm sea does not fold it. The alternative is a set that has to be retuned
 			// every time one is added to it.
-			const float Steep = FMath::Min(Wave.Steepness * Params.ChoppinessScale, MobWaterWaveConstants::MaxSteepness);
+			const float Steep = FMath::Min(Wave.Steepness * Params.ChoppinessScale * Gain, MobWaterWaveConstants::MaxSteepness);
 			const float KA = K * Amplitude;
 			const float Q = KA > UE_SMALL_NUMBER ? Steep / (KA * static_cast<float>(Count)) : 0.f;
 
@@ -276,16 +424,17 @@ struct MOBWATER_API FMobWaterWaves
 	 * of times rather than iterating to a tolerance, so two machines take the same path to the same
 	 * answer.
 	 */
-	static FMobWaterSample Surface(const FMobWaterWaveParams& Params, const FVector2f& WorldXY, float Time)
+	static FMobWaterSample Surface(const FMobWaterWaveParams& Params, const FVector2f& WorldXY, float Time,
+		const FMobWaterShoalField* Shoal = nullptr)
 	{
 		FVector2f Guess = WorldXY;
 		for (int32 Step = 0; Step < MobWaterWaveConstants::SurfaceIterations; ++Step)
 		{
-			const FMobWaterSample Walk = Evaluate(Params, Guess, Time);
+			const FMobWaterSample Walk = Evaluate(Params, Guess, Time, Shoal);
 			Guess = WorldXY - FVector2f(Walk.Displacement.X, Walk.Displacement.Y);
 		}
 
-		FMobWaterSample Out = Evaluate(Params, Guess, Time);
+		FMobWaterSample Out = Evaluate(Params, Guess, Time, Shoal);
 
 		// The horizontal part has done its job getting here and would otherwise be reported as an
 		// offset from the column that was asked about, which it is not.

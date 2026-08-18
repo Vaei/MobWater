@@ -183,3 +183,101 @@ float MobWaterShoreAttenuation(float EdgeDistance, float FadeDistance)
 	const float T = saturate(EdgeDistance / FadeDistance);
 	return T * T * (3.0f - 2.0f * T);
 }
+
+/** How many obstacles a body's waves shoal against. The same four the surface carves with. */
+#define MOB_WATER_SHOAL_SLOTS 4
+
+/**
+ * How far into its shoal a wave has to be before it collapses, as a fraction of that shoal.
+ *
+ * A fraction rather than a distance so the surf zone scales with the run: a headland that gathers a
+ * wave over fifty metres breaks it over the last seven, a harbour wall that gathers it over five
+ * breaks it over the last one.
+ */
+#define MOB_WATER_SHOAL_BREAK 0.15f
+
+/**
+ * The shallowest a shoal reads as, which is what caps how tall a shoaling wave can stand.
+ *
+ * Green's law has no bottom - the fourth root of a depth going to zero goes to infinity - and a real
+ * wave has broken long before it gets there. A sixteenth is two to the fourth, so the tallest a
+ * shoaling wave stands is twice what it was out at sea.
+ */
+#define MOB_WATER_SHOAL_FLOOR 0.0625f
+
+/**
+ * How far inside an analytic volume a point is, negative outside it.
+ *
+ * A is (CentreX, CentreY, HalfX, HalfY) and B is (CosYaw, SinYaw, ShapeFlag, Strength). Shared by
+ * the water a volume keeps out and the waves it shoals, so the edge one measures from is the edge
+ * the other one does.
+ */
+float MobWaterVolumeInside(float2 WorldXY, float4 A, float4 B)
+{
+	const float2 Offset = WorldXY - A.xy;
+
+	// Into the volume's own frame. The CPU applies the same rotation, so a query and a pixel agree
+	// about where the edge is even on a hull that is turning.
+	const float2 Local = float2(
+		Offset.x * B.x + Offset.y * B.y,
+		-Offset.x * B.y + Offset.y * B.x);
+
+	return B.z < 0.5f
+		? A.z - length(Local)
+		: min(A.z - abs(Local.x), A.w - abs(Local.y));
+}
+
+/**
+ * Where a point sits in one obstacle's shoal: 0 against its face, 1 at the far edge of the run.
+ *
+ * A fraction of that volume's own shoal rather than a distance in centimetres, because the four are
+ * compared against each other. A headland gathering a wave over fifty metres is not further off
+ * than a harbour wall gathering it over five, it is earlier in the same climb.
+ */
+float MobWaterShoalAt(float2 WorldXY, float4 A, float4 B, float ShoalDistance)
+{
+	if (ShoalDistance <= 0.0f)
+	{
+		return 1.0f;
+	}
+
+	return saturate(-MobWaterVolumeInside(WorldXY, A, B) / ShoalDistance);
+}
+
+/** The nearest of the four shoals, which is the one the wave is climbing. */
+float MobWaterShoal(float2 WorldXY,
+	float4 A0, float4 B0, float4 A1, float4 B1,
+	float4 A2, float4 B2, float4 A3, float4 B3,
+	float4 ShoalDistance)
+{
+	float T = MobWaterShoalAt(WorldXY, A0, B0, ShoalDistance.x);
+	T = min(T, MobWaterShoalAt(WorldXY, A1, B1, ShoalDistance.y));
+	T = min(T, MobWaterShoalAt(WorldXY, A2, B2, ShoalDistance.z));
+	T = min(T, MobWaterShoalAt(WorldXY, A3, B3, ShoalDistance.w));
+	return T;
+}
+
+/**
+ * What ground coming up under a wave does to it.
+ *
+ * Green's law: a wave entering shallow water carries the same energy flux through a shorter column,
+ * so its height rises as the fourth root of the depth it is losing. Distance to the obstacle stands
+ * in for that depth, because a vertex shader cannot read a bed - and neither can a dedicated server,
+ * which is the constraint that actually decides it.
+ *
+ * Gain multiplies the amplitude and the choppiness together, and that pairing is the whole thing. A
+ * crest that rises without leaning is a larger sine, and the fold crest foam is cut from never
+ * moves; leaning as it rises, it goes white on its own at the break, with nothing tying the two.
+ *
+ * Survives is returned apart because it has to multiply the finished displacement rather than the
+ * amplitude. A Gerstner wave's sideways throw does not depend on its height - the steepness divides
+ * that back out - so a wave taken to nothing through its amplitude alone still slides the surface
+ * sideways across the rock it just died on.
+ */
+void MobWaterShoalScales(float T, out float Gain, out float Survives)
+{
+	// A divide rather than rsqrt. The reciprocal square root is an approximation on most hardware and
+	// this number has to be the one the CPU query reaches, to the bit, or a hull rides its own wave.
+	Gain = 1.0f / sqrt(sqrt(max(T, MOB_WATER_SHOAL_FLOOR)));
+	Survives = MobWaterShoreAttenuation(T, MOB_WATER_SHOAL_BREAK);
+}

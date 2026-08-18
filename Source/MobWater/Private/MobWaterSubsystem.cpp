@@ -102,6 +102,9 @@ namespace MobWaterParams
 	/** (Softness0, Softness1, Softness2, Softness3), because a float4 is cheaper than four scalars. */
 	static const FName ExclusionSoftness = TEXT("ExclusionSoftness");
 
+	/** How far out from each volume its waves shoal, in world units. Zero is a volume with no surf. */
+	static const FName ExclusionShoal = TEXT("ExclusionShoal");
+
 	/** The baked outlines, on the step material rather than the collection: they are textures. */
 	static const FName MeshMask[MOB_WATER_MESH_EXCLUSION_SLOTS] =
 	{
@@ -705,6 +708,24 @@ float UMobWaterSubsystem::GetExclusionAt(const FVector& Location) const
 	return Most;
 }
 
+void UMobWaterSubsystem::GetWaveShoalAtLocation(const UObject* WorldContextObject, const FVector& Location,
+	float& OutGain, float& OutSurvives)
+{
+	OutGain = 1.f;
+	OutSurvives = 1.f;
+
+	const UMobWaterSubsystem* Subsystem = Get(WorldContextObject);
+	if (!Subsystem || Subsystem->ShoalField.IsEmpty())
+	{
+		return;
+	}
+
+	const FVector2f WorldXY(static_cast<float>(Location.X), static_cast<float>(Location.Y));
+
+	FMobWaterWaves::ShoalScales(
+		FMobWaterWaves::ShoalNormalised(Subsystem->ShoalField, WorldXY), OutGain, OutSurvives);
+}
+
 void UMobWaterSubsystem::PublishExclusions()
 {
 	FVector ViewLocation;
@@ -719,7 +740,12 @@ void UMobWaterSubsystem::PublishExclusions()
 		{
 			// A baked outline goes into the field instead, and taking a slot as well would carve its
 			// bounding rectangle out from under the shape it just cut.
-			if (Exclusion->IsActive() && Exclusion->Strength > 0.f && !Exclusion->IsMesh())
+			//
+			// A shoal earns a slot on its own. A reef holds no water back and still breaks the sea
+			// over itself, and dropping it here would leave the only volume that mattered unpublished.
+			const bool bDoesSomething = Exclusion->Strength > 0.f || Exclusion->ShoalDistance > 0.f;
+
+			if (Exclusion->IsActive() && bDoesSomething && !Exclusion->IsMesh())
 			{
 				Live.Add(Exclusion);
 			}
@@ -746,26 +772,39 @@ void UMobWaterSubsystem::PublishExclusions()
 	}
 
 	FLinearColor Softness = FLinearColor::Black;
+	FLinearColor Shoal = FLinearColor::Transparent;
+
+	// Kept as well as published, because a query has to shoal against the volumes the surface is
+	// drawing rather than against every volume in the level. Rebuilt here so the two cannot part.
+	ShoalField = FMobWaterShoalField();
 
 	for (int32 Slot = 0; Slot < MOB_WATER_EXCLUSION_SLOTS; ++Slot)
 	{
 		FLinearColor A = FLinearColor(0.f, 0.f, 1.f, 1.f);
 		FLinearColor B = FLinearColor::Transparent;
 		float Soft = 1.f;
+		float Run = 0.f;
 
 		if (Live.IsValidIndex(Slot))
 		{
 			Live[Slot]->PackForShader(A, B);
 			Soft = FMath::Max(Live[Slot]->EdgeSoftness, 1.f);
+			Run = FMath::Max(Live[Slot]->ShoalDistance, 0.f);
 		}
 
 		SetVector(MobWaterParams::ExclusionA[Slot], A);
 		SetVector(MobWaterParams::ExclusionB[Slot], B);
 
 		Softness.Component(Slot) = Soft;
+		Shoal.Component(Slot) = Run;
+
+		ShoalField.A[Slot] = FVector4f(A.R, A.G, A.B, A.A);
+		ShoalField.B[Slot] = FVector4f(B.R, B.G, B.B, B.A);
+		ShoalField.Distance[Slot] = Run;
 	}
 
 	SetVector(MobWaterParams::ExclusionSoftness, Softness);
+	SetVector(MobWaterParams::ExclusionShoal, Shoal);
 }
 
 void UMobWaterSubsystem::TickMeshExclusions()

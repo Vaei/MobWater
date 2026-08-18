@@ -203,9 +203,17 @@ public:
  */
 namespace MobWaterCombined
 {
-	/** Where a point that started at SampleXY went, from both sources at once. */
+	/**
+	 * Where a point that started at SampleXY went, from both sources at once.
+	 *
+	 * Only the authored waves shoal. A baked spectrum is a deep water sea state - Phillips is
+	 * defined for one - so Green's law has nothing to say about it, and the surface it draws is
+	 * killed into an obstacle rather than raised against it. The swell that rises is the Gerstner
+	 * tier layered over it, which is where a body's surf is authored anyway.
+	 */
 	MOBWATER_API FMobWaterSample Evaluate(const FMobWaterWaveParams& Params,
-		const UMobWaterSpectrum* Spectrum, const FVector2f& SampleXY, float Time);
+		const UMobWaterSpectrum* Spectrum, const FVector2f& SampleXY, float Time,
+		const FMobWaterShoalField* Shoal = nullptr);
 
 	/**
 	 * The surface directly above a world XY.
@@ -215,5 +223,6 @@ namespace MobWaterCombined
 	 * up to a metre from the one that was asked about.
 	 */
 	MOBWATER_API FMobWaterSample Surface(const FMobWaterWaveParams& Params,
-		const UMobWaterSpectrum* Spectrum, const FVector2f& WorldXY, float Time);
+		const UMobWaterSpectrum* Spectrum, const FVector2f& WorldXY, float Time,
+		const FMobWaterShoalField* Shoal = nullptr);
 }

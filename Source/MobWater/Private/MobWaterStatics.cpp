@@ -159,15 +159,19 @@ FMobWaterInfo UMobWaterStatics::EvaluateWaterAt(const UObject* WorldContextObjec
 }
 
 FMobWaterInfo UMobWaterStatics::EvaluateWaterAtNative(const FMobWaterWaveParams& Params, const FVector& Location,
-	float StillSurfaceZ, float WaterDepth, float ShoreFade, float Time, const UMobWaterSpectrum* Spectrum)
+	float StillSurfaceZ, float WaterDepth, float ShoreFade, float Time, const UMobWaterSpectrum* Spectrum,
+	const FMobWaterShoalField* Shoal)
 {
 	const FVector2f WorldXY = FVector2f(static_cast<float>(Location.X), static_cast<float>(Location.Y));
 
-	const FMobWaterSample Sample = MobWaterCombined::Surface(Params, Spectrum, WorldXY, Time);
+	const FMobWaterSample Sample = MobWaterCombined::Surface(Params, Spectrum, WorldXY, Time, Shoal);
 
 	// Waves lie down towards the bank, and the query has to agree with the vertex about that or
 	// buoyancy floats a crate above a shoreline the surface has already flattened.
-	const float Attenuation = FMath::Clamp(ShoreFade, 0.f, 1.f);
+	//
+	// A wave breaking on a rock lies down the same way, and rides here rather than in the amplitude
+	// for the reason FMobWaterSample::Shoal gives: the sideways throw does not scale with height.
+	const float Attenuation = FMath::Clamp(ShoreFade, 0.f, 1.f) * Sample.Shoal;
 
 	FMobWaterInfo Out;
 	Out.bValid = true;

@@ -56,6 +56,9 @@ Not officially released. Expect updates without versioning, and a changelog that
 <li>The query reads the sea out of a byte table rather than the texture, so a dedicated server answers the same surface the clients draw</li>
 <li>The same algorithm on the CPU and in the shader, asserted equal at 192 points across 3 instants</li>
 <li>Shore attenuation weighted by distance to the body's own edge, computed identically in the vertex shader and the query</li>
+<li>Waves shoal on what stands in them. An exclusion volume with a shoal distance raises the waves climbing towards it as the fourth root of the run left - Green's law - leans them as it raises them, and collapses them over the last fifteen per cent onto the face. The gain multiplies the choppiness as well as the amplitude, so crest foam whitens at the break without being wired to it</li>
+<li>Shoaling is independent of strength, so a volume that holds no water back still breaks the sea over itself. A volume with no shoal on it is untouched</li>
+<li>Run up at the waterline: a crest widens both foam bands and the trough behind it drains them, driven by the wave's fold so a shoaling crest throws the foam further up the rock it is climbing</li>
 <li>Per-body wave amplitude and wave speed, sharing one data slot, applied inside the wave evaluation so they reach the normal as well as the geometry. The query packs and unpacks the same float the shader reads</li>
 <li>A supplied clock, folded into a loop period, with the same value reaching the material and every query</li>
 <li>The baked tier asserted the same way, at 0.05458 cm - a filter weight rather than a difference of maths</li>
@@ -78,6 +81,16 @@ Not officially released. Expect updates without versioning, and a changelog that
 <li>A component visualizer to place them by</li>
 <li>Mesh exclusion: the mesh's own plan view, rasterised once in the editor to a distance mask stored on the component, so a cooked build never reads a vertex buffer. Drawn into a window of its own, and read back by the surface for one tap and no sampler</li>
 <li>Exclusion subtracted from the CPU query: a fully excluded point answers no water, a partly excluded one has its immersion scaled by what is left, and the amount is reported</li>
+</ul>
+
+<h3>Surf</h3>
+
+<ul>
+<li>A surf point component that broadcasts where and when a wave breaks - location, normal, the direction it was aimed, how hard, and how far the water stood over it. It draws nothing: the plume that leaves the water when a wave hits a rock has a life of its own and no heightfield holds one</li>
+<li>Fires on the crest and rearms as the surface flattens behind it, which paces itself off the sea rather than off a timer</li>
+<li>Costs one branch with nothing bound to it, and one distance check past Max Distance from a view. <code>mob.Water.Surf 0</code> stops every one of them</li>
+<li>Pure CPU, off the analytic model, so two machines given the same instant fire the same impacts</li>
+<li>The shoal at a point is readable from Blueprint, for a project putting sound or a shove where the water is breaking</li>
 </ul>
 
 <h3>Things in it</h3>
@@ -108,6 +121,8 @@ Not officially released. Expect updates without versioning, and a changelog that
 <ul>
 <li>A networked determinism harness: a real dedicated server and two real clients, each recording the surface at eight fixed points every frame, compared row by row. Run again with the clock stepped by a thousand loop periods, which is what proves the fold, and again with two machines a third of a period apart, which must disagree</li>
 <li>Exclusion checked end to end: real volumes placed, published the way any frame would, and the query compared against what the surface carves</li>
+<li>Surf held against the physics twice over: the shoal profile and the volume distances compared with Green's law and the break worked longhand on the GPU, then a real reef placed in a real ocean and the answer read back through the same call buoyancy makes - which is what catches a shoal distance that never left the component or a slot published without one</li>
+<li>The wave parity probe now shoals too, at up to twice open water height, because that is where the steepness clamp decides the answer and a gain applied on the wrong side of it parts the two implementations there and nowhere else</li>
 <li>Snell's window held against Snell's law rather than against a look: every direction a submerged eye can cast, refracted on the GPU and compared with the refracted angle, the Fresnel transmittance and the capture's own projection worked longhand. The disc has no CPU side of its own, so without it the only thing keeping it the right size was that it seemed plausible once</li>
 </ul>
 
@@ -130,6 +145,10 @@ Not officially released. Expect updates without versioning, and a changelog that
 <h3>Known gaps</h3>
 
 <ul>
+<li>A shoaling wave rises, leans and breaks white; it cannot curl over. A Gerstner wave pinches to a cusp and stops, and a heightfield cannot hold two heights over one point. A genuine overturning breaker is a mesh standing on the surface, and belongs to the project</li>
+<li>Four volumes shoal at once, the nearest to the view, being the four the surface already carves with. A mesh outline cannot shoal at all - its shape is a texture and the vertex shader does not read one</li>
+<li>The baked sea dies into an obstacle and does not rise against it. Phillips is a deep water sea state, so Green's law is not defined for it</li>
+<li>A shoal is a plan view distance to a volume rather than the depth of the water, because that is what a vertex shader and a dedicated server can both have. A shoal following a real bed contour has to be approximated with volumes along it</li>
 <li>The mirror outside Snell's window is not drawn, and the window is refracted through one surface normal, so the disc tilts with the swell but does not ripple</li>
 <li>A mesh outline reaches only as far as its window does, and four are carried at once</li>
 <li>The baked sea's normal is sampled at mip zero, because a frame atlas cannot carry a mip chain. Nothing was visible at range beside what the ocean's own detail normals were already doing, but a calmer look may find it</li>

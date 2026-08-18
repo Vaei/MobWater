@@ -77,13 +77,69 @@ Steepness is shared out across the set rather than applied per wave, so adding a
 
 <h2>Waves lie down at the bank</h2>
 
-<p>Amplitude is weighted by how far a point is from the body's own edge, smoothly, over <b>Shore Fade Distance</b>. Without it a lake's waves keep their full height as the bank comes up and stand above dry ground at the rim. It is one multiply, and it is the difference between an edge that reads as a shoreline and one that reads as a plane intersecting terrain.</p>
+<p>Amplitude is weighted by how far a point is from the body's own edge, smoothly, over <b>Shore Fade Distance</b>. Waves also lie down against anything standing <i>in</i> the water, which is <a href="#surf">surf</a> and has a section of its own. Without it a lake's waves keep their full height as the bank comes up and stand above dry ground at the rim. It is one multiply, and it is the difference between an edge that reads as a shoreline and one that reads as a plane intersecting terrain.</p>
 
 <div data-shot="waves.shore"></div>
 
 <div class="important">
 Distance to the edge, and not the depth of the water, however much the second sounds like the better measure. The displacement happens in the vertex shader, and a vertex shader cannot read the depth buffer - the bed is only recoverable per pixel, by which point the vertex has already moved. The edge of a box, a disc or a spline is arithmetic, so the vertex shader and the CPU query can both have it. Scene depth still does everything it can do: colour, clarity and shoreline foam are all per pixel.
 </div>
+
+<h2 id="surf">Surf</h2>
+
+<p>An exclusion volume with a <b>Shoal Distance</b> on it is something the waves can feel. Approaching it they rise, lean as they rise, go white where they lean hardest, and die against the face. Set it to the distance over which the sea would actually shallow towards the thing - a headland gathers a swell over tens of metres, a harbour wall over a few - rather than to how big the thing is.</p>
+
+<div data-shot="waves.shoal"></div>
+
+<p>The height comes from <b>Green's law</b>: a wave entering shallow water carries the same energy through a shorter column, so it rises as the fourth root of the depth it is losing. Distance to the volume stands in for that depth, because a vertex shader cannot read a bed and neither can a dedicated server. The gain is capped at twice the open-water height, which is a sixteenth of the run - past that a real wave has already broken - and over the last fifteen per cent of the run the wave collapses onto the face.</p>
+
+<div class="tw"><table>
+<thead><tr><th>Where in the run</th><th>What the wave does</th></tr></thead>
+<tbody>
+<tr><td>out past it</td><td>nothing, exactly. A shoal is not felt before the run begins</td></tr>
+<tr><td>half way in</td><td>about a fifth taller, leaning a fifth harder</td></tr>
+<tr><td>at the break, 15% out</td><td><b>1.6&times;</b> its open-water height, and folding hard enough to whiten</td></tr>
+<tr><td>against the face</td><td>gone</td></tr>
+</tbody>
+</table></div>
+
+<p>Crest foam is not wired to any of this and lands on it anyway. The gain multiplies the choppiness as well as the amplitude, so a shoaling crest leans as it rises and reaches the fold threshold on its own - which is what a wave going white at a break actually is.</p>
+
+<div class="important">
+<b>Strength and Shoal Distance are independent.</b> A volume at strength zero holds no water back and still breaks the sea over itself, which is a reef or a sandbar. A volume with no shoal on it carves as it always did, so nothing authored before this changes.
+</div>
+
+<h3>The waterline surges</h3>
+
+<p><b>Shore Foam Run Up</b> is how much further a crest throws the waterline's foam than it reaches between waves. A wave arriving pushes the foam up whatever it is lapping against and the trough behind it drains back down. Both foam bands widen together, because both are the same line - one measured against the bed and one against the bank - and a shore that surged in one and not the other would tear along the seam between them.</p>
+
+<div data-shot="waves.runup"></div>
+
+<p>What moves is <i>where the foam stops</i>, never how white it is. Foam is white; a surge that brightened it would read as the water flashing. It is driven by the wave's fold rather than its height, which costs nothing - the fold is already interpolated for the crest foam - and is the better signal besides: a crest shoaling into a cliff leans harder as it rises, so it throws the foam further up the rock without anything having tied the two together.</p>
+
+<h3 id="surf-points">Where it bursts</h3>
+
+<p>The plume that leaves the water when a wave hits a rock is not a surface. It has a life of its own, and no heightfield holds one. So MobWater does not draw it - it says when and where one is due, and the project throws whatever it throws.</p>
+
+<p>Drop a <b>Mob Water Surf</b> component where waves break, point its forward the way the water should be thrown, and bind <code>OnSurfImpact</code>. It fires once a wave, on the crest, and rearms as the surface flattens behind it - hysteresis rather than a timer, so it paces itself off the sea instead of off a number nobody can set correctly for two swells at once. The impact carries where, the surface normal, the direction the component was pointed, how hard, and how far the water stood over the point.</p>
+
+<div data-shot="waves.surf"></div>
+
+<div class="note">
+Nothing about it is on by default beyond the component existing. With nothing bound it costs one branch; past <b>Max Distance</b> from a view it costs one distance check. It runs entirely on the CPU out of the analytic wave model, so two machines given the same instant fire the same impacts - a project may broadcast one, replicate one, or let every machine find its own. <code>mob.Water.Surf 0</code> stops all of them at once.
+</div>
+
+<h3>What surf cannot do here</h3>
+
+<p>Worth knowing before building on it, because each of these is a property of the model rather than a gap someone forgot to fill.</p>
+
+<ul>
+<li><b>A wave cannot curl over.</b> A Gerstner wave pinches to a cusp at full steepness and stops; a heightfield cannot hold two heights over one point however hard it is pushed. What shoaling gives is a wave that rises, leans and breaks white - not a barrel. A genuine overturning breaker is a mesh or a vertex-animated cutout standing on the surface, and belongs to the project rather than to this material.</li>
+<li><b>Only four volumes shoal at once</b>, the nearest to the view, which are the same four the surface carves with. A coastline of a dozen headlands has the nearest few working and the rest flat, and which few follows the camera.</li>
+<li><b>A mesh outline cannot shoal.</b> Its shape lives in a texture, and how tall a wave stands is decided in the vertex shader, which does not read one. Put an analytic volume alongside it for the surf.</li>
+<li><b>The baked spectrum does not rise</b>, only dies. Phillips is a deep-water sea state and Green's law is not defined for it, so a shoal kills the baked tier into an obstacle rather than raising it against one. The swell that rises is the Gerstner tier layered over it, which is where a body's surf is authored anyway.</li>
+<li><b>Distance to a volume is not the depth of the water.</b> It is a plan-view stand-in, chosen because it is arithmetic the vertex shader and the query can both have. A shoal that should follow the real bed contour has to be approximated with volumes placed along it.</li>
+</ul>
 
 <h2 id="the-baked-sea">The baked sea</h2>
 
@@ -193,7 +249,7 @@ Its step is a <b>sixty fourth</b> of a second, not a sixtieth, because a sixty f
 
 <p><code>MobWaterWaves.h</code> and <code>Shaders/Public/MobWaterWaves.ush</code> are one algorithm written twice, because a vertex shader cannot call C++ and a dedicated server has no GPU. Nothing but a test keeps them equal.</p>
 
-<p><b>Water &rarr; Verify Contract</b> evaluates both at sampled points and instants and reports the worst disagreement. The last run: <b>384 points across 3 instants and 2 body scales, worst disagreement 0.00099 cm</b>. The baked tier is checked the same way and agrees to 0.05458 cm, which is looser for a reason the section above gives.</p>
+<p><b>Water &rarr; Verify Contract</b> evaluates both at sampled points and instants and reports the worst disagreement. The last run: <b>1152 points across 3 instants, 2 body scales and 3 shoals, worst disagreement 0.00156 cm</b>. One of those shoals stands the waves twice as tall, which is where the steepness clamp decides the answer - a gain applied on the wrong side of that clamp parts the two implementations there and nowhere else. The baked tier is checked the same way and agrees to 0.05458 cm, which is looser for a reason the section above gives.</p>
 
 <div data-shot="waves.parity"></div>
 

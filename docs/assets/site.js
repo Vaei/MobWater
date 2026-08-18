@@ -78,6 +78,9 @@ window.DOCS = {
 		'waves.shore':          { page: 'waves.html', cap: 'Shore attenuation off and on, at the bank', file: 'waves-shore.png', compare: 'waves-shore-b.png' },
 		'waves.steepness':      { page: 'waves.html', cap: 'Choppiness from 0 to 1 across one preset', file: 'waves-steepness.png' },
 		'waves.parity':         { page: 'waves.html', cap: 'Verify Contract, reporting the worst CPU-to-GPU disagreement', file: 'waves-parity.png' },
+		'waves.shoal':          { page: 'waves.html', cap: 'The same swell crossing a reef, with the shoal off and on', file: 'waves-shoal.png', compare: 'waves-shoal-b.png' },
+		'waves.runup':          { page: 'waves.html', cap: 'The waterline under a crest and under the trough behind it', file: 'waves-runup.png', compare: 'waves-runup-b.png' },
+		'waves.surf':           { page: 'waves.html', cap: 'A surf point on a rock, and the spray a project hung off it', file: 'waves-surf.png' },
 		'waves.spectrum':       { page: 'waves.html', cap: 'The five-wave Gerstner ocean, and the same ocean carrying a baked spectrum', file: 'waves-spectrum.png', compare: 'waves-spectrum-b.png' },
 
 		'techniques.column':    { page: 'techniques.html', cap: 'The water column, visualised as the material sees it', file: 'techniques-column.png' },

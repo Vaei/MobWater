@@ -54,6 +54,9 @@ All of it costs one translucent plane, and runs anywhere - including the mobile 
 
 - **The bed comes from the depth buffer**, so the water column's thickness is a tap that was already being paid for. Colour, clarity, shoreline foam and the underwater fade all read off that one number
 - **Waves lie down as the bottom comes up.** Amplitude is weighted by depth, so displacement dies at the bank instead of clipping through it. This is the single term that stops a lake's edge shimmering above dry ground
+- **Waves break on what stands in them.** Give an exclusion volume a shoal distance and waves climbing towards it rise as the fourth root of the run left - Green's law - lean as they rise, go white where they lean hardest, and die against the face. Crest foam is not wired to it and lands on it anyway, because the gain multiplies the choppiness as well as the height. Strength and shoal are independent, so a reef that holds no water back still breaks the sea over itself
+- **The waterline surges and drains.** A crest throws the shoreline foam further up whatever it is lapping against and the trough takes it back. What moves is where the foam stops, not how white it is, because foam is white
+- **Spray is an event, not a feature.** The plume that leaves the water when a wave hits a rock has a life of its own and no heightfield holds one, so MobWater says when and where one is due and the project throws it. Pure CPU, off the analytic model, so two machines fire the same impacts - and it costs one branch with nothing bound to it
 - **Foam where the water actually meets something** - the shore from the depth gradient, the crests from wave steepness. A still pond gets the first and not the second, which is why it reads as still
 - **Refraction is optional and compiles out.** With it off there is no scene colour read at all, which is the right look for deep or stylized water and the only look on a platform that will not copy scene colour
 

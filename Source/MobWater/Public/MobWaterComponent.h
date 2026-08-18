@@ -229,6 +229,23 @@ public:
 	float ShoreFoamDepth = 8.f;
 
 	/**
+	 * How much further a crest throws the waterline's foam than it reaches between waves.
+	 *
+	 * The waterline surges and drains: a wave arriving pushes the foam up whatever it is lapping
+	 * against and the trough behind it takes the foam back down. 0 is a waterline that never moves,
+	 * which is a still body; 1 doubles the reach under a crest.
+	 *
+	 * What moves is where the foam stops, not how white it is, because foam is white. The wave's
+	 * fold drives it rather than its height, so a crest shoaling into a cliff - leaning harder as it
+	 * rises - throws the foam further up the rock without anything having tied the two together.
+	 *
+	 * Quantised to a fraction: it shares a data slot with ShoreFoamDepth, the primitive data being
+	 * full at thirty six.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Foam", meta=(EditCondition="bFoam", ClampMin="0.0", ClampMax="4.0"))
+	float ShoreFoamRunUp = 0.f;
+
+	/**
 	 * How far in from the bank the edge foam line reaches, as a fraction of the shore fade.
 	 *
 	 * The line every body gets whether or not there is anything under it to be shallow against. On a

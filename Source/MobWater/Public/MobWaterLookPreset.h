@@ -92,6 +92,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Foam", meta=(ClampMin="0.0", ForceUnits="cm"))
 	float ShoreFoamDepth = 20.f;
 
+	/** How much further a crest throws that foam than it reaches between waves. 0 never moves it. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Foam", meta=(ClampMin="0.0", ClampMax="4.0"))
+	float ShoreFoamRunUp = 0.f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Foam", meta=(ClampMin="0.0", ClampMax="1.0"))
 	float CrestFoamThreshold = 0.55f;
 
