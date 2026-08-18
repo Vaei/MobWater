@@ -90,6 +90,7 @@ Not officially released. Expect updates without versioning, and a changelog that
 <li>The underwater view rides an actor of its own that follows whichever camera is drawing the picture: attached to the local player's camera manager, to the debug camera the moment it takes the local player over, and placed at an editor viewport when nothing is playing at all. It used to be a component on every local controller's camera manager, which failed three ways: a play world draws nothing a hidden actor owns and a camera manager is hidden, an editor viewport has no camera manager to hang it on, and a debug camera left the plane standing where the old view had stopped</li>
 <li>A query API that answers from the wave model alone, attributed to the object that asked</li>
 <li>The camera crossing the surface is its own event: <code>UMobWaterSubsystem::OnViewSubmergedChanged</code>, plus the submersion, the depth, and the deepest the camera reached without coming up. Separate from a character's crossing because in anything but a first person game the two happen at different moments in different places, and what belongs to a camera is what happens to a lens</li>
+<li>Snell's window: the whole world above compressed into the cone the surface lets through, with a bright ring at the critical angle and the water thickened outside it. Its edge is the full Fresnel transmittance reaching zero rather than a fade - Schlick has no critical angle and would leave the rim passing a third of the sky. Filled from the sky the surface already reflects, or from a scene capture of the world above for a level whose shoreline should be in the disc</li>
 </ul>
 
 <h3>Editor</h3>
@@ -107,6 +108,7 @@ Not officially released. Expect updates without versioning, and a changelog that
 <ul>
 <li>A networked determinism harness: a real dedicated server and two real clients, each recording the surface at eight fixed points every frame, compared row by row. Run again with the clock stepped by a thousand loop periods, which is what proves the fold, and again with two machines a third of a period apart, which must disagree</li>
 <li>Exclusion checked end to end: real volumes placed, published the way any frame would, and the query compared against what the surface carves</li>
+<li>Snell's window held against Snell's law rather than against a look: every direction a submerged eye can cast, refracted on the GPU and compared with the refracted angle, the Fresnel transmittance and the capture's own projection worked longhand. The disc has no CPU side of its own, so without it the only thing keeping it the right size was that it seemed plausible once</li>
 </ul>
 
 <h3>Rewind Debugger</h3>
@@ -128,7 +130,7 @@ Not officially released. Expect updates without versioning, and a changelog that
 <h3>Known gaps</h3>
 
 <ul>
-<li>No Snell's window: looking up from deep water does not compress the world above into a bright disc</li>
+<li>The mirror outside Snell's window is not drawn, and the window is refracted through one surface normal, so the disc tilts with the swell but does not ripple</li>
 <li>A mesh outline reaches only as far as its window does, and four are carried at once</li>
 <li>The baked sea's normal is sampled at mip zero, because a frame atlas cannot carry a mip chain. Nothing was visible at range beside what the ocean's own detail normals were already doing, but a calmer look may find it</li>
 <li>Icons are placeholders</li>

@@ -150,6 +150,9 @@ public:
 
 	int32 GetBodyCount() const { return Bodies.Num(); }
 
+	/** Every surface registered in this world, which is what a view of the world above has to leave out. */
+	const TArray<TWeakObjectPtr<class UMobWaterComponent>>& GetBodies() const { return Bodies; }
+
 	void RegisterExclusion(class UMobWaterExclusionComponent* Exclusion);
 	void UnregisterExclusion(class UMobWaterExclusionComponent* Exclusion);
 

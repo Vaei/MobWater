@@ -59,6 +59,12 @@ EXPECTED_UNDERWATER = {
     'CausticStrength': 'UW_CAUSTIC_STRENGTH',
     'CausticScale': 'UW_CAUSTIC_SCALE',
     'CausticDepth': 'UW_CAUSTIC_DEPTH',
+    'SnellIndex': 'UW_SNELL_INDEX',
+    'SnellFeather': 'UW_SNELL_FEATHER',
+    'SnellRim': 'UW_SNELL_RIM',
+    'SnellBrightness': 'UW_SNELL_BRIGHTNESS',
+    'SnellCaptureTan': 'UW_SNELL_CAPTURE_TAN',
+    'SnellMirror': 'UW_SNELL_MIRROR',
 }
 
 
@@ -966,6 +972,180 @@ def check_two_sea_states():
     return failures
 
 
+SNELL_PROBE_PATH = '/MobWater/Materials/M_MobWaterSnellProbe'
+
+# Angles across, azimuths down. Enough of the first to place the edge of the window to a degree, and
+# enough of the second to catch a coordinate that is right on one axis and mirrored on the other.
+SNELL_ANGLES = 48
+SNELL_AZIMUTHS = 8
+
+SNELL_INDEX = 1.333
+SNELL_TAN_HALF_FOV = 3.7320508
+
+# The permutations the settings look up by name. A missing one is not a failure the plane reports:
+# it drops a feature and carries on, so nothing says the window was never generated.
+SNELL_INSTANCES = [
+    '/MobWater/Materials/MI_MobWaterUnderwater_Window',
+    '/MobWater/Materials/MI_MobWaterUnderwater_Caustics_Window',
+    '/MobWater/Materials/MI_MobWaterUnderwater_Window_Capture',
+    '/MobWater/Materials/MI_MobWaterUnderwater_Caustics_Window_Capture',
+]
+
+
+def _snell_expected(theta, phi, index):
+    """Snell's law and the Fresnel transmittance, worked from the angles rather than from the shader.
+
+    Written out longhand here on purpose. A check that called the same helper the material calls
+    would agree with itself whatever either of them had become.
+    """
+    sin_w = math.sin(theta)
+    cos_w = math.cos(theta)
+
+    sin_crit = 1.0 / index
+
+    near = sin_crit
+    far = max(sin_crit, near + 1e-4)
+
+    t = min(max((sin_w - near) / (far - near), 0.0), 1.0)
+    window = 1.0 - t * t * (3.0 - 2.0 * t)
+
+    sin_a = min(sin_w * index, 1.0)
+    cos_a = math.sqrt(max(1.0 - sin_a * sin_a, 0.0))
+
+    rs = (index * cos_w - cos_a) / max(index * cos_w + cos_a, 1e-4)
+    rp = (index * cos_a - cos_w) / max(index * cos_a + cos_w, 1e-4)
+
+    transmit = min(max(1.0 - 0.5 * (rs * rs + rp * rp), 0.0), 1.0) * window
+
+    refracted = (sin_a * math.cos(phi), sin_a * math.sin(phi), cos_a)
+
+    return math.asin(sin_a), transmit, window, refracted
+
+
+def check_snell_window():
+    """Holds the window the shader draws against the window physics says there is.
+
+    The disc has no CPU side to compare with, because nothing in a game asks where the sky went - so
+    without this the only thing keeping it the right size is that it looked plausible once. What it
+    asserts is the refracted angle, the transmittance that closes the disc at the critical angle, and
+    that a direction lands where the capture's own projection would have put it.
+    """
+    probe = unreal.load_asset(SNELL_PROBE_PATH)
+    if probe is None:
+        return ['Snell probe %s is missing. Run Water > Generate Materials.' % SNELL_PROBE_PATH]
+
+    world = unreal.EditorLevelLibrary.get_editor_world()
+    if world is None:
+        return ['no editor world to render the probe in.']
+
+    target = unreal.RenderingLibrary.create_render_target2d(
+        world, SNELL_ANGLES, SNELL_AZIMUTHS, unreal.TextureRenderTargetFormat.RTF_RGBA32F)
+    if target is None:
+        return ['could not create a render target for the probe.']
+
+    material = unreal.MaterialLibrary.create_dynamic_material_instance(world, probe)
+    material.set_scalar_parameter_value('Index', SNELL_INDEX)
+
+    # No feather. The edge of the disc is the surface refusing to transmit, and a softened one is
+    # somebody's taste laid over the thing being measured.
+    material.set_scalar_parameter_value('Feather', 0.0)
+    material.set_scalar_parameter_value('TanHalfFov', SNELL_TAN_HALF_FOV)
+
+    failures = []
+    critical = math.asin(1.0 / SNELL_INDEX)
+
+    worst_angle = 0.0
+    worst_transmit = 0.0
+    worst_uv = 0.0
+
+    last_open = -1.0
+    first_shut = math.pi
+
+    for mode in (0.0, 1.0):
+        material.set_scalar_parameter_value('Mode', mode)
+        unreal.RenderingLibrary.draw_material_to_render_target(world, target, material)
+
+        for ty in range(SNELL_AZIMUTHS):
+            for tx in range(SNELL_ANGLES):
+                pixel = unreal.RenderingLibrary.read_render_target_raw_pixel(world, target, tx, ty)
+
+                u = (tx + 0.5) / SNELL_ANGLES
+                v = (ty + 0.5) / SNELL_AZIMUTHS
+
+                theta = u * (math.pi * 0.5)
+                phi = v * (math.pi * 2.0)
+
+                angle, transmit, window, refracted = _snell_expected(theta, phi, SNELL_INDEX)
+
+                # The one texel that can land inside the step the guard leaves at the critical angle,
+                # where a float either side of it decides the answer.
+                if abs(math.sin(theta) - 1.0 / SNELL_INDEX) < 1e-3:
+                    continue
+
+                if mode < 0.5:
+                    worst_angle = max(worst_angle, abs(pixel.r * math.pi - angle))
+                    worst_transmit = max(worst_transmit, abs(pixel.g - transmit))
+
+                    if pixel.g > 1e-3:
+                        last_open = max(last_open, theta)
+                    else:
+                        first_shut = min(first_shut, theta)
+                    continue
+
+                # Only where the window is open. Beyond it the refracted direction is horizontal, the
+                # projection divides by nothing and both sides answer with a clamp rather than a
+                # coordinate.
+                if transmit <= 0.01:
+                    continue
+
+                forward = max(refracted[2], 1e-4) * SNELL_TAN_HALF_FOV
+                plane_x = refracted[1] / forward
+                plane_y = -refracted[0] / forward
+
+                expected_u = min(max(0.5 + 0.5 * plane_x, 0.0), 1.0)
+                expected_v = min(max(0.5 - 0.5 * plane_y, 0.0), 1.0)
+
+                worst_uv = max(worst_uv, abs(pixel.r - expected_u), abs(pixel.g - expected_v))
+
+    if worst_angle > 1e-3:
+        failures.append('the refracted angle is out by %.5f rad, so the shader is not solving '
+                        "Snell's law." % worst_angle)
+    else:
+        _log('  ok  refraction matches asin(n sin t) to %.6f rad' % worst_angle)
+
+    if worst_transmit > 1e-3:
+        failures.append('the transmittance is out by %.5f, so the disc is not closing where the '
+                        'surface stops transmitting.' % worst_transmit)
+    else:
+        _log('  ok  Fresnel transmittance matches to %.6f' % worst_transmit)
+
+    if worst_uv > 1e-3:
+        failures.append('a refracted direction lands %.5f off where the capture would have put it, '
+                        'so the window and the capture disagree about where they are looking.'
+                        % worst_uv)
+    else:
+        _log('  ok  capture coordinates invert the capture-s own projection to %.6f' % worst_uv)
+
+    # The claim the whole effect rests on, stated as an angle rather than as a look.
+    step = (math.pi * 0.5) / SNELL_ANGLES
+
+    if last_open > critical or first_shut < critical - step:
+        failures.append('the window runs from %.2f to %.2f degrees, and the critical angle is %.2f.'
+                        % (math.degrees(last_open), math.degrees(first_shut), math.degrees(critical)))
+    else:
+        _log('  ok  the disc closes at %.2f degrees, the critical angle for n = %.3f'
+             % (math.degrees(critical), SNELL_INDEX))
+
+    for path in SNELL_INSTANCES:
+        if unreal.load_asset(path) is None:
+            failures.append('%s is missing, so a plane asking for it silently drops a feature.' % path)
+
+    if not failures:
+        _log('  ok  %d permutations of the plane carry the window' % len(SNELL_INSTANCES))
+
+    return failures
+
+
 def run():
     """Every check. Returns True when they all pass."""
     _log('Verifying contract')
@@ -987,6 +1167,12 @@ def run():
 
     _log(' the underwater plane-s own data layout')
     failures += check_underwater_indices()
+
+    _log(" Snell-s window against Snell-s law")
+    if unreal:
+        failures += check_snell_window()
+    else:
+        _log('  --  skipped: needs the editor to render the probe.')
 
     _log(' numeric CPU and GPU wave parity')
     if unreal:

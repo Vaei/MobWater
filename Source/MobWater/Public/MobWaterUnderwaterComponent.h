@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "MobWaterTypes.h"
 #include "Components/StaticMeshComponent.h"
 #include "MobWaterUnderwaterComponent.generated.h"
 
@@ -32,6 +33,9 @@ public:
 	//~ Begin UActorComponent Interface
 	virtual void OnRegister() override;
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
+#if WITH_EDITOR
+	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
+#endif
 	//~ End UActorComponent Interface
 
 	/**
@@ -116,6 +120,82 @@ public:
 	float CausticDepth = 800.f;
 
 	/**
+	 * Snell's window: the world above, compressed into the cone the surface lets through.
+	 *
+	 * Water bends light, so everything above the surface reaches a submerged eye inside a disc of
+	 * about forty-nine degrees, and beyond that disc the surface is a mirror. It is the one cue that
+	 * says the eye is under water rather than behind a coloured pane, because it is a change of
+	 * geometry and nothing done to the colour can stand in for it.
+	 *
+	 * A compiled permutation rather than a strength, and the disc itself costs one texture read -
+	 * what it is filled from is the expensive question, and that is Window Source.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Snell Window")
+	bool bSnellWindow = true;
+
+	/**
+	 * Where the world seen through the window is read from.
+	 *
+	 * Sky is one tap and knows nothing of the level. Scene Capture is a second view of the world and
+	 * costs what a second view costs, running only while the eye is under the surface.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Snell Window", meta=(EditCondition="bSnellWindow"))
+	EMobWaterWindowSource WindowSource = EMobWaterWindowSource::Sky;
+
+	/**
+	 * The water's refractive index, which is the only number the size of the window comes from.
+	 *
+	 * 1.333 is fresh water and puts the edge of the disc at 48.6 degrees. Raising it closes the
+	 * window and is what a denser or dirtier medium does; below 1 there is no critical angle and no
+	 * window at all, which is why it clamps there.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Snell Window", meta=(EditCondition="bSnellWindow", ClampMin="1.0", ClampMax="2.5"))
+	float RefractionIndex = 1.333f;
+
+	/**
+	 * How much of the window's edge is softened, as a fraction of its radius.
+	 *
+	 * The edge is drawn by the surface refusing to transmit past the critical angle, so this is not
+	 * what makes it: it only stops the last ring of pixels aliasing into a stair. Large values eat
+	 * the bright rim, which is the part of the effect people recognise.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Snell Window", meta=(EditCondition="bSnellWindow", ClampMin="0.0", ClampMax="0.5"))
+	float WindowFeather = 0.06f;
+
+	/** How bright the world above is through the window. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Snell Window", meta=(EditCondition="bSnellWindow", ClampMin="0.0"))
+	float WindowBrightness = 1.f;
+
+	/**
+	 * How bright the ring at the edge of the window is.
+	 *
+	 * Everything from the horizon up to a few degrees above it arrives inside that ring, so it
+	 * carries more light than anywhere else in the view. 0 leaves the disc with a plain edge.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Snell Window", meta=(EditCondition="bSnellWindow", ClampMin="0.0", ClampMax="2.0"))
+	float RimStrength = 0.5f;
+
+	/**
+	 * How much thicker the water reads outside the window.
+	 *
+	 * Beyond the critical angle the surface mirrors the water below, and what that mirror shows is
+	 * already behind this quad. So nothing is reflected here; the water is thickened where a mirror
+	 * would be, which is what makes the disc read as a disc. 0 leaves the water outside it alone.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Snell Window", meta=(EditCondition="bSnellWindow", ClampMin="0.0", ClampMax="1.0"))
+	float MirrorStrength = 0.35f;
+
+	/**
+	 * How wide the capture of the world above sees, in degrees.
+	 *
+	 * It has to hold the whole window, which is the sky from straight up to the horizon, and no
+	 * perspective capture can reach the horizon at all. Wider covers more of the disc and spends its
+	 * resolution on the periphery; narrower is sharper overhead and smears sooner at the rim.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Snell Window", meta=(EditCondition="bSnellWindow && WindowSource == EMobWaterWindowSource::SceneCapture", ClampMin="60.0", ClampMax="170.0", ForceUnits="deg"))
+	float CaptureFov = 150.f;
+
+	/**
 	 * The eye crossing the surface, either way.
 	 *
 	 * This is the camera's own crossing and nothing to do with any character's. A swimmer whose head
@@ -146,14 +226,39 @@ public:
 	UFUNCTION(BlueprintPure, Category="Underwater")
 	float GetDeepestImmersion() const { return DeepestImmersion; }
 
+	/** Which of the plane's materials this one wants, as a mask of MobWaterUnderwaterVariant flags. */
+	UFUNCTION(BlueprintPure, Category="Underwater")
+	int32 GetWantedVariant() const;
+
 protected:
 	void ApplyPlacement();
 
-	/** Picks the plain plane or the one that carries caustics, which are separate permutations. */
+	/** Picks the permutation carrying the features this plane asked for. */
 	void ApplyMaterial();
+
+	/**
+	 * Keeps the view of the world above alive while the eye is under, and gone the rest of the time.
+	 *
+	 * SurfaceZ is where the water is over the eye, which is where the capture sits: refraction
+	 * happens at the surface rather than at the eye, and a capture held down at the eye would be
+	 * looking up through the water it is meant to be seeing past.
+	 */
+	void UpdateCapture(bool bWanted, const FVector& Eye, float SurfaceZ);
+
+	/** Leaves every registered surface out of the capture, so the water is not its own ceiling. */
+	void HideWaterFromCapture();
 
 	bool bSubmerged = false;
 	float Submersion = 0.f;
 	float ImmersionDepth = 0.f;
 	float DeepestImmersion = 0.f;
+
+	UPROPERTY(Transient)
+	TObjectPtr<class USceneCaptureComponent2D> Capture;
+
+	/** What the capture was told to leave out, so it is only rebuilt when a body comes or goes. */
+	int32 HiddenBodies = -1;
+
+	/** What is on the plane now, so a permutation is looked up when it changes and not every frame. */
+	int32 AppliedVariant = INDEX_NONE;
 };

@@ -47,8 +47,27 @@ UMobWaterSettings::UMobWaterSettings()
 	ExclusionTarget = TSoftObjectPtr<UTextureRenderTarget2D>(FSoftObjectPath(TEXT("/MobWater/Textures/RT_MobWaterExclusion.RT_MobWaterExclusion")));
 	ExclusionFieldMaterial = TSoftObjectPtr<UMaterialInterface>(FSoftObjectPath(TEXT("/MobWater/Materials/M_MobWaterExclusionField.M_MobWaterExclusionField")));
 
-	UnderwaterMaterial = TSoftObjectPtr<UMaterialInterface>(FSoftObjectPath(TEXT("/MobWater/Materials/M_MobWaterUnderwater.M_MobWaterUnderwater")));
-	UnderwaterCausticMaterial = TSoftObjectPtr<UMaterialInterface>(FSoftObjectPath(TEXT("/MobWater/Materials/MI_MobWaterUnderwater_Caustics.MI_MobWaterUnderwater_Caustics")));
+	UnderwaterMaterials.Variants.SetNum(MobWaterUnderwaterVariant::Num);
+	for (int32 Variant = 0; Variant < MobWaterUnderwaterVariant::Num; ++Variant)
+	{
+		// Capture without Window is not a combination, so the generator never builds it and there is
+		// nothing here to point at.
+		if ((Variant & MobWaterUnderwaterVariant::Capture) && !(Variant & MobWaterUnderwaterVariant::Window))
+		{
+			continue;
+		}
+
+		const FString Suffix = MobWaterUnderwaterVariant::Suffix(Variant);
+		const FString Name = Suffix.IsEmpty()
+			? FString(TEXT("M_MobWaterUnderwater"))
+			: FString::Printf(TEXT("MI_MobWaterUnderwater%s"), *Suffix);
+
+		UnderwaterMaterials.Variants[Variant] = TSoftObjectPtr<UMaterialInterface>(
+			FSoftObjectPath(FString::Printf(TEXT("/MobWater/Materials/%s.%s"), *Name, *Name)));
+	}
+
+	SnellTarget = TSoftObjectPtr<UTextureRenderTarget2D>(FSoftObjectPath(TEXT("/MobWater/Textures/RT_MobWaterSnell.RT_MobWaterSnell")));
+
 	UnderwaterComponent = UMobWaterUnderwaterComponent::StaticClass();
 
 	RippleTarget = TSoftObjectPtr<UTextureRenderTarget2D>(FSoftObjectPath(TEXT("/MobWater/Textures/RT_MobWaterRipple.RT_MobWaterRipple")));
@@ -159,6 +178,38 @@ UMaterialInterface* UMobWaterSettings::GetMaterial(EMobWaterShape Shape, int32 V
 #if WITH_EDITOR
 		OnMobWaterMaterialMissing.Broadcast(Shape);
 #endif
+	}
+
+	return nullptr;
+}
+
+UMaterialInterface* UMobWaterSettings::GetUnderwaterMaterial(int32 Variant)
+{
+	const FMobWaterMaterialSet& Set = GetDefault<UMobWaterSettings>()->UnderwaterMaterials;
+
+	// The capture goes first, because dropping it leaves a window filled from the sky rather than no
+	// window - and a window is what tells the eye it is under the surface. Caustics go last: a plane
+	// without them is still water, and a plane without either is what the plugin shipped with before
+	// any of this existed.
+	static constexpr int32 DropOrder[] = { MobWaterUnderwaterVariant::Capture,
+		MobWaterUnderwaterVariant::Window, MobWaterUnderwaterVariant::Caustics };
+	static constexpr int32 NumDrops = static_cast<int32>(UE_ARRAY_COUNT(DropOrder));
+
+	int32 Wanted = Variant;
+	for (int32 Attempt = 0; Attempt <= NumDrops; ++Attempt)
+	{
+		if (Set.Variants.IsValidIndex(Wanted))
+		{
+			if (UMaterialInterface* Material = Set.Variants[Wanted].LoadSynchronous())
+			{
+				return Material;
+			}
+		}
+
+		if (Attempt < NumDrops)
+		{
+			Wanted &= ~DropOrder[Attempt];
+		}
 	}
 
 	return nullptr;

@@ -81,6 +81,54 @@ Fading the whole screen in over a few centimetres instead is the same informatio
 A compiled permutation, not a strength of zero. It is two texture reads on a quad that covers the screen, which is the most expensive place in this renderer to carry something nobody asked for. Off, the taps and their coordinates are not in the shader at all - the plane runs the plain <code>M_MobWaterUnderwater</code> rather than <code>MI_MobWaterUnderwater_Caustics</code>.
 </div>
 
+<h2 id="snell">Snell's window</h2>
+
+<p>Water bends light, so everything above the surface reaches a submerged eye inside a disc of about <b>forty-nine degrees</b> around the up direction. The whole hemisphere is compressed into that circle, and beyond it the surface is a mirror. It is the one cue that says the eye is under water rather than behind a coloured pane, because it is a change of <b>geometry</b> - nothing done to the colour stands in for it.</p>
+
+<div data-shot="underwater.snell"></div>
+
+<p>Turn <b>Snell Window</b> on and the plane draws it. The disc is not authored: its edge is the point where the surface stops transmitting, which falls out of the refractive index and nothing else. At 1.333 that is 48.6 degrees, and <b>Verify Contract</b> asserts it there.</p>
+
+<div class="tw"><table class="free">
+<thead><tr><th>Property</th><th>Default</th><th></th></tr></thead>
+<tbody>
+<tr><td><b>Snell Window</b></td><td>on</td><td>a compiled permutation. Off, the refraction, the disc and the sample that fills it are not in the shader</td></tr>
+<tr><td><b>Window Source</b></td><td>Sky</td><td>where the world above is read from. See below</td></tr>
+<tr><td><b>Refraction Index</b></td><td>1.333</td><td>fresh water. The only number the size of the disc comes from - raising it closes the window, which is what a denser medium does</td></tr>
+<tr><td><b>Window Feather</b></td><td>0.06</td><td>softens the last ring so it does not alias into a stair. It is not what draws the edge, and a large value eats the bright rim</td></tr>
+<tr><td><b>Window Brightness</b></td><td>1.0</td><td>how bright the world above is through it</td></tr>
+<tr><td><b>Rim Strength</b></td><td>0.5</td><td>the bright ring at the edge. Everything from the horizon up to a few degrees above it arrives inside that ring</td></tr>
+<tr><td><b>Mirror Strength</b></td><td>0.35</td><td>how much thicker the water reads outside the window</td></tr>
+<tr><td><b>Capture Fov</b></td><td>150&deg;</td><td>how wide the capture of the world above sees. Scene Capture only</td></tr>
+</tbody>
+</table></div>
+
+<h3>Where the world above comes from</h3>
+
+<p><b>Sky</b> refracts the same long-latitude sky the surface reflects, through the same rotation, so the window and the reflection cannot disagree about which way the level's sun is. One texture read. It is correct for the case the window is famous for - open water under an open sky, where nearly everything in the disc <i>is</i> sky - and what it cannot show is anything standing at the water's edge, because a sky texture has never heard of the level.</p>
+
+<p><b>Scene Capture</b> is the world itself: a capture looking straight up from the waterline over the eye, written into <code>RT_MobWaterSnell</code> and read back through the refracted ray. It is a second view of the scene and costs what a second view costs. It exists only while the eye is under the surface and is torn down on the frame it comes up.</p>
+
+<div class="important">
+The capture is locked to world up with no yaw, and that is load-bearing rather than a simplification. A capture that turned with the eye would have to hand its view matrix to the shader, and there are sixteen floats in one against thirty six in the whole per-instance contract. Fixed, a direction becomes a coordinate in two multiplies.
+</div>
+
+<p>It sits at the surface rather than at the eye, because light bends where it leaves the water and a capture held down at the eye would be looking up through the water it exists to see past. Every registered body of water is hidden from it, so a wave crest overhead is not a ceiling over the view.</p>
+
+<div class="warn">
+One render target, so one eye at a time gets a captured window. Split screen shares it, and the second view would be reading the first view's sky. That is why Sky is the default and the capture is asked for.
+</div>
+
+<h3>The disc is physics, not a fade</h3>
+
+<p>Transmission through the surface uses the full Fresnel equations rather than Schlick's approximation, and that is the difference between a window and a vignette. Schlick has no critical angle: it climbs smoothly past it and would leave the rim transmitting a third of the sky where the surface has in fact stopped transmitting anything. The full form reaches zero exactly where the refracted ray goes horizontal, so the edge of the disc is the physics and not a number somebody tuned.</p>
+
+<p>The sky is also absorbed on the way down. The window is not a hole in the water: the column the light came through takes it like any other, so the disc dims and goes with depth on its own. Nothing needs a depth cutoff.</p>
+
+<div class="note">
+Outside the disc the surface mirrors the water below, and MobWater does not render that mirror - what a second downward view would show is already behind this quad, absorbed by distance. <b>Mirror Strength</b> thickens the water there instead, which is what makes the disc read as a disc. Set it to 0 and the water outside the window is left exactly as it was.
+</div>
+
 <h2 id="hooks">Hooking the camera going under</h2>
 
 <p>The camera crossing the surface is <b>its own event</b>, separate from any character crossing it, and the two want different effects. A swimmer with their head under is in water and the splash belongs to them; in anything but a first person game the camera is metres away from that, and what belongs to it is what happens to a <b>lens</b> - droplets on surfacing, spatter, a wipe, a muffle on the mix.</p>
@@ -127,7 +175,11 @@ Droplets, spatter and any other lens effect are the project's own Niagara or mat
 <h2>What is not done</h2>
 
 <div class="warn">
-There is no <b>Snell's window</b>: looking up from deep water does not compress the world above into a bright disc ringed by total internal reflection. That needs the world above refracted through the surface as seen from below, which is a second view - not something a quad reading the depth buffer can stand in for.
+The <b>mirror</b> outside Snell's window is not drawn. Past the critical angle the surface reflects the water below, and that would want a second view pointing down as well as the one pointing up. What is there instead is the water itself, thickened, which is most of what the mirror shows in anything but a swimming pool.
+</div>
+
+<div class="warn">
+The window is refracted through <b>one</b> surface normal, the one at the eye, so the disc tilts with the swell but does not ripple. A real one shimmers because the surface over it is rough at every scale, and that would want the ripple field sampled per pixel across the whole window rather than once.
 </div>
 
 <p>The caustics the <i>surface</i> draws are a different thing again: those are thrown downwards onto the bed, which is the view from above. See <a href="techniques.html#caustics">Caustics</a>.</p>

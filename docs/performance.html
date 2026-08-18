@@ -38,6 +38,10 @@ None of the numbers below is the real cost. Water is a translucent plane and the
 <tr><td><code>M_MobWater</code></td><td>937</td><td>1203</td><td>7</td><td>4</td></tr>
 <tr><td><code>M_MobWaterUnderwater</code></td><td>250</td><td>168</td><td>2</td><td>0</td></tr>
 <tr><td><code>MI_MobWaterUnderwater_Caustics</code></td><td>250</td><td>197</td><td>3</td><td>0</td></tr>
+<tr><td><code>MI_MobWaterUnderwater_Window</code></td><td>250</td><td>287</td><td>3</td><td>0</td></tr>
+<tr><td><code>MI_MobWaterUnderwater_Caustics_Window</code></td><td>250</td><td>308</td><td>3</td><td>0</td></tr>
+<tr><td><code>MI_MobWaterUnderwater_Window_Capture</code></td><td>250</td><td>254</td><td>3</td><td>0</td></tr>
+<tr><td><code>MI_MobWaterUnderwater_Caustics_Window_Capture</code></td><td>250</td><td>276</td><td>3</td><td>0</td></tr>
 <tr><td><code>M_MobWaterRippleStep</code></td><td>24</td><td>83</td><td>2</td><td>0</td></tr>
 <tr><td><code>M_MobWaterRippleCopy</code></td><td>24</td><td>26</td><td>2</td><td>0</td></tr>
 <tr><td><code>M_MobWaterRippleStamp</code></td><td>24</td><td>133</td><td>2</td><td>0</td></tr>
@@ -48,6 +52,8 @@ None of the numbers below is the real cost. Water is a translucent plane and the
 <p>Seven samplers for seven texture reads' worth of work, because every tap on the surface is <code>Shared:Wrap</code> or <code>Shared:Clamp</code>. The ripple materials are drawn twice per step over a 256&sup2; target between them, which is 65k pixels of an 83-instruction shader - a rounding error beside one body of water on screen. The step reads nine neighbours rather than five because a five point Laplacian carries a wave faster along the grid axes than across its diagonals, and a ring that travels far enough turns into a square.</p>
 
 <p><code>M_MobWaterExclusionField</code> is drawn over the same 256&sup2; only while a level actually has a baked mesh outline in it, which most do not - and when the last one goes it is cleared once rather than redrawn empty. Its five samplers are four outline masks and their coordinates; the surface reads the result back through one shared-clamp tap.</p>
+
+<p>Snell's window is 119 pixel instructions and no extra sampler, because it reads the sky through the tap the plane was going to spend anyway. The <b>capture</b> variants are <i>cheaper</i> in the shader than the sky ones - a long-latitude lookup is an <code>atan2</code> and an <code>acos</code>, the capture's projection is two divides - and far more expensive overall, because behind them is a second view of the scene. Read those rows as the cost of reading the window, not the cost of filling it.</p>
 
 <div class="note">
 The vertex count is high because the wave sum happens there: eight Gerstner waves, unrolled, plus the shore attenuation. It is paid per vertex of the surface mesh, so a lake's <b>Grid Resolution</b> and a river's <b>Segments Along</b> are vertex-shader settings as much as they are silhouette ones.

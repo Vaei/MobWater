@@ -66,3 +66,23 @@ FString MobWaterVariant::Suffix(int32 Variant)
 
 	return Out;
 }
+
+FString MobWaterUnderwaterVariant::Suffix(int32 Variant)
+{
+	FString Out;
+
+	if (Variant & Caustics)
+	{
+		Out += TEXT("_Caustics");
+	}
+	if (Variant & Window)
+	{
+		Out += TEXT("_Window");
+	}
+	if (Variant & Capture)
+	{
+		Out += TEXT("_Capture");
+	}
+
+	return Out;
+}

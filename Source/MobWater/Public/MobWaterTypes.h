@@ -115,17 +115,69 @@ namespace MobWaterVariant
 }
 
 /**
- * The materials one shape can render with, indexed by MobWaterVariant.
+ * Which of the underwater plane's materials to use.
  *
- * An array rather than eight named members: the set only ever grows by another axis, and naming each
- * corner of a cube stops being readable at the third one.
+ * Axes of its own rather than MobWaterVariant's. The plane is not a body of water and shares none of
+ * its features, and one namespace holding both would offer a pond a Snell window and the plane a
+ * shoreline.
+ */
+namespace MobWaterUnderwaterVariant
+{
+	/** The light coming down through the water. Two texture reads on a quad that covers the screen. */
+	static constexpr int32 Caustics = 1 << 0;
+
+	/** Snell's window: the whole world above, compressed into the cone the surface lets through. */
+	static constexpr int32 Window = 1 << 1;
+
+	/**
+	 * The window is filled from a scene capture rather than from the sky the surface reflects.
+	 *
+	 * Only meaningful with Window, so the generator never builds it alone. Both read the same
+	 * sampler and this changes only how a direction becomes a coordinate - but one of them is a
+	 * second view of the world, which is the only thing here that costs a frame rather than a tap.
+	 */
+	static constexpr int32 Capture = 1 << 2;
+
+	static constexpr int32 Num = 8;
+
+	/** The name suffix the generator gives this combination. */
+	MOBWATER_API FString Suffix(int32 Variant);
+}
+
+/** Where the world seen through Snell's window is read from. */
+UENUM(BlueprintType)
+enum class EMobWaterWindowSource : uint8
+{
+	/**
+	 * The same sky every body of water reflects, refracted through the surface.
+	 *
+	 * One texture read, and correct for the case the window is famous for: open water under an open
+	 * sky, where nearly everything in the disc is sky. What it cannot show is anything standing at
+	 * the water's edge, because the sky texture has never heard of the level.
+	 */
+	Sky				UMETA(DisplayName = "Sky"),
+
+	/**
+	 * A scene capture looking straight up from the surface, which is the world itself.
+	 *
+	 * A second view of the scene, so it costs what a second view costs. It runs only while the eye
+	 * is under the surface, which in most games is a small part of a small part of the time.
+	 */
+	SceneCapture	UMETA(DisplayName = "Scene Capture"),
+};
+
+/**
+ * The materials one thing can render with, indexed by a variant mask.
+ *
+ * An array rather than a named member per corner: the set only ever grows by another axis, and
+ * naming each corner of a cube stops being readable at the third one.
  */
 USTRUCT(BlueprintType)
 struct FMobWaterMaterialSet
 {
 	GENERATED_BODY()
 
-	/** Indexed by the MobWaterVariant flags: ripples 1, foam 2, refraction 4. */
+	/** Indexed by MobWaterVariant for a body of water, MobWaterUnderwaterVariant for the plane. */
 	UPROPERTY(EditAnywhere, Category="Materials")
 	TArray<TSoftObjectPtr<class UMaterialInterface>> Variants;
 };

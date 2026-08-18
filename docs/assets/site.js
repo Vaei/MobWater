@@ -109,6 +109,7 @@ window.DOCS = {
 		'underwater.view':      { page: 'underwater.html', cap: 'Under the surface, absorbing with distance', file: 'underwater-view.png' },
 		'underwater.crossing':  { page: 'underwater.html', cap: 'The waterline across the view, with the bead on it', file: 'underwater-crossing.png' },
 		'underwater.caustics':  { page: 'underwater.html', cap: 'Light dappling down through the water, seen from under it', file: 'underwater-caustics.png' },
+		'underwater.snell':     { page: 'underwater.html', cap: "Snell's window: the world above compressed into the cone the surface lets through", file: 'underwater-snell.png' },
 
 		'characters.wade':      { page: 'characters.html', cap: 'Wading, with the ripples the feet leave', file: 'characters-wade.png' },
 		'characters.splash':    { page: 'characters.html', cap: 'A splash bound to OnSplash, at the depth it happened', file: 'characters-splash.png' },

@@ -707,7 +707,8 @@ void FMobWaterEditorModule::ApplyReflectionTexture(UTexture* Texture)
 
 	// Written into every instance, because a collection cannot hold a texture and a project should
 	// not have to open twenty-four assets to change which sky its water is reflecting.
-	const FName ParameterName(TEXT("ReflectionTexture"));
+	const FName ReflectionName(TEXT("ReflectionTexture"));
+	const FName SnellName(TEXT("SnellTexture"));
 
 	IAssetRegistry& Registry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry")).Get();
 	Registry.ScanPathsSynchronous({ TEXT("/MobWater/Materials") }, true);
@@ -725,17 +726,32 @@ void FMobWaterEditorModule::ApplyReflectionTexture(UTexture* Texture)
 			continue;
 		}
 
-		UTexture* Existing = nullptr;
-		if (Instance->GetTextureParameterValue(ParameterName, Existing) && Existing == Texture)
+		// Snell's window looks at the same sky, unless it is being filled from a capture - in which
+		// case the slot holds the render target that capture writes, and putting a sky there would
+		// leave the window showing a backdrop while a second view of the world was being rendered
+		// for it every frame.
+		const bool bCaptured =
+			UMaterialEditingLibrary::GetMaterialInstanceStaticSwitchParameterValue(Instance, TEXT("bSnellCapture"));
+
+		for (const FName& ParameterName : { ReflectionName, SnellName })
 		{
-			continue;
+			if (bCaptured && ParameterName == SnellName)
+			{
+				continue;
+			}
+
+			UTexture* Existing = nullptr;
+			if (Instance->GetTextureParameterValue(ParameterName, Existing) && Existing == Texture)
+			{
+				continue;
+			}
+
+			UMaterialEditingLibrary::SetMaterialInstanceTextureParameterValue(Instance, ParameterName, Texture);
+			UMaterialEditingLibrary::UpdateMaterialInstance(Instance);
+
+			Instance->MarkPackageDirty();
+			++Written;
 		}
-
-		UMaterialEditingLibrary::SetMaterialInstanceTextureParameterValue(Instance, ParameterName, Texture);
-		UMaterialEditingLibrary::UpdateMaterialInstance(Instance);
-
-		Instance->MarkPackageDirty();
-		++Written;
 	}
 
 	if (Written > 0)

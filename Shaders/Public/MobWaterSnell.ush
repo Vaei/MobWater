@@ -1,0 +1,153 @@
+// Copyright (c) Jared Taylor
+
+#pragma once
+
+/*
+ * /MobWater/Public/MobWaterSnell.ush
+ *
+ * Snell's window: what the world above looks like from under the surface.
+ *
+ * Water bends light, so every direction in the sky above arrives at a submerged eye inside a cone
+ * of about forty-nine degrees. The whole hemisphere is compressed into that disc, and outside it the
+ * surface is a mirror of the water below. This is the one cue that says the eye is under the surface
+ * rather than behind a coloured pane, and no amount of tinting or blurring stands in for it, because
+ * it is a change of geometry rather than a change of colour.
+ *
+ * Everything here is per pixel on a quad held in front of the camera, so the direction is the view
+ * ray and the surface is the plane the query already returned. Nothing samples a texture: a Custom
+ * node emits its own sampler and has no shared-sampler path, so taps happen in TextureSample nodes
+ * and arrive here already sampled.
+ */
+
+#include "/MobWater/Public/MobWaterSurface.ush"
+
+/**
+ * Where a ray leaving the eye reaches the air, and how much of it gets there.
+ *
+ * ViewDirection points away from the eye, along the ray. SurfaceNormal is the surface at the eye,
+ * pointing up out of the water. Index is the water's refractive index, which is the only number the
+ * size of the window comes from - 1.333 puts its edge at 48.6 degrees, and nothing else about the
+ * effect is authored.
+ *
+ * Transmit is the fraction of the sky that survives the surface, and it reaches zero exactly at the
+ * critical angle rather than near it, which is what draws the edge of the disc. Feather only softens
+ * the last ring so it does not alias into a stair.
+ */
+void MobWaterSnell(float3 ViewDirection, float3 SurfaceNormal, float Index, float Feather,
+	out float3 Refracted, out float Window, out float Transmit, out float Rim)
+{
+	const float3 V = normalize(ViewDirection);
+	const float3 N = normalize(SurfaceNormal);
+
+	const float CosW = dot(V, N);
+
+	// The part of the ray lying in the surface, whose length is the sine of the angle off the normal.
+	// Taking the sine from the tangent rather than from the cosine keeps the angle and the direction
+	// as one quantity, so they cannot disagree at the rim where every other term is about to.
+	const float3 Tangent = V - CosW * N;
+	const float SinW = length(Tangent);
+
+	const float SinCrit = 1.0f / max(Index, 1.0f);
+
+	// The near edge is held clear of the far one. A feather of zero is a reasonable thing to ask for
+	// and would otherwise put the two ends of the smoothstep on the same value, which is a division
+	// by zero and a screen of NaN rather than the hard edge that was wanted.
+	const float Near = SinCrit * (1.0f - saturate(Feather));
+
+	Window = 1.0f - smoothstep(Near, max(SinCrit, Near + 1e-4f), SinW);
+
+	// A ray heading down is not looking at the sky however small its angle to the surface normal is,
+	// and without this the view straight at the bed reads as the middle of the window. There is no
+	// seam to soften: the sign changes where the ray is horizontal, which is already outside.
+	Window *= step(0.0f, CosW);
+
+	// Brightest where the window is half gone, which is the critical ring itself. Everything from
+	// the horizon up to a few degrees above it arrives inside that ring, so there is genuinely more
+	// light there than anywhere else in the view.
+	Rim = Window * (1.0f - Window) * 4.0f;
+
+	const float SinA = min(SinW * Index, 1.0f);
+	const float CosA = sqrt(saturate(1.0f - SinA * SinA));
+
+	// Away from the axis the tangent is a direction; on the axis it is nothing, and so is the sine
+	// that scales it - so the plain normalize would divide by zero for the one ray looking straight
+	// up, which is the middle of the effect.
+	const float3 Along = Tangent / max(SinW, 1e-4f);
+
+	Refracted = Along * SinA + N * CosA;
+
+	// Fresnel in full rather than Schlick. Schlick has no critical angle: it climbs smoothly past it
+	// and would leave the rim of the window transmitting a third of the sky where the surface has in
+	// fact stopped transmitting anything at all. This form reaches one exactly where CosA reaches
+	// zero, so the edge of the disc is the physics rather than a fade somebody tuned.
+	const float Rs = (Index * CosW - CosA) / max(Index * CosW + CosA, 1e-4f);
+	const float Rp = (Index * CosA - CosW) / max(Index * CosA + CosW, 1e-4f);
+
+	Transmit = saturate(1.0f - 0.5f * (Rs * Rs + Rp * Rp)) * Window;
+}
+
+/**
+ * How much of the sky survives the water between the surface and the eye.
+ *
+ * The window is not a hole in the water: the column the light came down through absorbs it like any
+ * other, so the disc dims and goes with depth. This is what stops a camera thirty metres down
+ * carrying a bright sky on its ceiling, and it is why the effect needs no depth cutoff of its own.
+ *
+ * The path is longer than the depth for every ray but the one straight up, and it runs away at the
+ * rim, so the grazing term is clamped: an unbounded path would take the ring to black a pixel before
+ * the Fresnel took it to nothing, which reads as a dark ring rather than a bright one.
+ */
+float MobWaterSnellPath(float EyeDepth, float3 ViewDirection, float3 SurfaceNormal, float Clarity)
+{
+	const float CosW = max(dot(normalize(ViewDirection), normalize(SurfaceNormal)), 0.05f);
+
+	return exp(-(max(EyeDepth, 0.0f) / CosW) / max(Clarity, 1.0f));
+}
+
+/**
+ * Where a world direction lands in a capture that looks straight up.
+ *
+ * The capture's orientation is fixed at world up with no yaw, and that is what lets this be
+ * arithmetic: a capture that turned with the eye would have to carry its view matrix to the shader,
+ * and there are sixteen floats in one against thirty six in the whole per-instance contract.
+ *
+ * TanHalfFov is the tangent of half the capture's field of view. Outside the frustum it clamps
+ * rather than failing - those are the rays within a degree or two of the critical angle, where the
+ * sky just above the horizon is compressed past any resolution a capture could hold. It smears there
+ * in a photograph too.
+ */
+float2 MobWaterSnellCaptureUV(float3 Direction, float TanHalfFov)
+{
+	const float3 D = normalize(Direction);
+
+	// A capture pitched ninety degrees has its right along world +Y and its up along world -X.
+	const float2 Plane = float2(D.y, -D.x) / (max(D.z, 1e-4f) * max(TanHalfFov, 1e-3f));
+
+	return saturate(float2(0.5f + 0.5f * Plane.x, 0.5f - 0.5f * Plane.y));
+}
+
+/**
+ * How much of this pixel is the world above rather than the water.
+ *
+ * The rim is added rather than blended, because the horizon crammed into that ring is brighter than
+ * the sky it came from and a lerp could only ever make it dimmer than one of its two ends.
+ */
+float MobWaterSnellAmount(float Transmit, float Rim, float RimStrength, float Through)
+{
+	return saturate((Transmit + Rim * max(RimStrength, 0.0f)) * Through);
+}
+
+/**
+ * How much thicker the water reads outside the window.
+ *
+ * Beyond the critical angle the surface is a mirror, and what it mirrors is the water below - which
+ * is what is behind this quad already, absorbed by distance. So this does not draw a reflection; it
+ * thickens the water in the band where one would be, which is what makes the disc read as a disc
+ * rather than as a bright patch. Zero leaves the water outside the window exactly as it was.
+ */
+float MobWaterSnellMirror(float Window, float3 ViewDirection, float3 SurfaceNormal, float Strength)
+{
+	const float Facing = saturate(dot(normalize(ViewDirection), normalize(SurfaceNormal)));
+
+	return (1.0f - Window) * Facing * saturate(Strength);
+}

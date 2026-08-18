@@ -1934,7 +1934,25 @@ def build_material_instances(master):
 # ---------------------------------------------------------------------------
 
 UNDERWATER_NAME = 'M_MobWaterUnderwater'
-UNDERWATER_CAUSTIC_NAME = 'MI_MobWaterUnderwater_Caustics'
+SNELL_TARGET_NAME = 'RT_MobWaterSnell'
+
+# The world above, as a capture looking straight up. Square, because the projection the shader
+# inverts assumes one field of view rather than two - and it is read through a disc, so a wider frame
+# would be spending its extra width outside the window.
+SNELL_TARGET_SIZE = 512
+
+# Which of the plane's features each bit turns on. Has to agree with MobWaterUnderwaterVariant in
+# MobWaterTypes.h, which is where the names the instances are called after come from.
+UW_VARIANT_CAUSTICS = 1 << 0
+UW_VARIANT_WINDOW = 1 << 1
+UW_VARIANT_CAPTURE = 1 << 2
+
+# Capture without Window is not a combination: the capture is only ever read through the window.
+UNDERWATER_VARIANTS = [UW_VARIANT_CAUSTICS,
+                       UW_VARIANT_WINDOW,
+                       UW_VARIANT_CAUSTICS | UW_VARIANT_WINDOW,
+                       UW_VARIANT_WINDOW | UW_VARIANT_CAPTURE,
+                       UW_VARIANT_CAUSTICS | UW_VARIANT_WINDOW | UW_VARIANT_CAPTURE]
 
 # The underwater plane's own custom primitive data. Has to agree with MobUnderwaterData in
 # MobWaterUnderwaterComponent.cpp.
@@ -1948,6 +1966,14 @@ UW_MENISCUS_STRENGTH = 10
 UW_CAUSTIC_STRENGTH = 11
 UW_CAUSTIC_SCALE = 12
 UW_CAUSTIC_DEPTH = 13
+UW_SNELL_INDEX = 14
+UW_SNELL_FEATHER = 15
+UW_SNELL_RIM = 16
+UW_SNELL_BRIGHTNESS = 17
+UW_SNELL_CAPTURE_TAN = 18
+UW_SNELL_MIRROR = 19
+
+SNELL_INCLUDES = INCLUDES + ['/MobWater/Public/MobWaterSnell.ush']
 
 # How far above and below the waterline this pixel is, and what that makes of it.
 #
@@ -1993,6 +2019,46 @@ return UVA;
 _CODE_UNDERWATER_CAUSTICS = """
 return MobWaterUnderwaterCaustics(LayerA, LayerB, SceneDepth, ImmersionDepth, FadeDepth, Clarity,
 	Strength);
+"""
+
+# CameraVector runs from the pixel back to the eye, and every angle here is measured along the ray
+# the eye is actually casting.
+_CODE_SNELL = """
+const float3 V = -CameraVector;
+
+float3 Refracted;
+float Window;
+float Transmit;
+float Rim;
+MobWaterSnell(V, SurfaceNormal, Index, Feather, Refracted, Window, Transmit, Rim);
+
+const float Through = MobWaterSnellPath(EyeDepth, V, SurfaceNormal, Clarity);
+
+Amount = MobWaterSnellAmount(Transmit, Rim, RimStrength, Through);
+Mirror = MobWaterSnellMirror(Window, V, SurfaceNormal, MirrorStrength);
+
+return Refracted;
+"""
+
+_CODE_SNELL_SKY_UV = """
+return MobWaterLongLatUV(Refracted, Params.y);
+"""
+
+_CODE_SNELL_CAPTURE_UV = """
+return MobWaterSnellCaptureUV(Refracted, TanHalfFov);
+"""
+
+# The window replaces what is behind the quad rather than tinting it: what is above the surface is not
+# behind this pixel in any sense the depth buffer knows about, so where the window is full the plane
+# has to be opaque or the bed shows through the sky.
+_CODE_SNELL_OPACITY = """
+const float Under = saturate(Wet * Submersion);
+
+return saturate(Base + Amount * Under + Mirror * (1.0f - Base) * Under);
+"""
+
+_CODE_SNELL_COLOR = """
+return lerp(Water, Above * Brightness, saturate(Amount * Wet * Submersion));
 """
 
 
@@ -2111,6 +2177,76 @@ def build_underwater_material():
     caustic_amount = g.static_switch(mat, b_caustics, caustics, '', g.const(mat, 0.0, -2, 18), '',
                                      -1, 16)
 
+    # --- Snell's window -----------------------------------------------------
+    #
+    # A permutation, and the one that changes what the plane is for. Off, the disc, the refraction,
+    # the sample that fills it and its coordinates are not in the shader at all.
+    b_window = g.static_bool(mat, 'bSnellWindow', False, 'Snell Window', -4, 24, 1,
+                             'The world above, compressed into the cone the surface lets through. '
+                             'Off, none of it is in the shader.')
+
+    # Two ways to reach the same sampler, which is why this switches a coordinate rather than a tap.
+    # One is the sky the surface already reflects; the other is a second view of the world.
+    b_capture = g.static_bool(mat, 'bSnellCapture', False, 'Snell Window', -4, 26, 2,
+                              'The window is filled from a scene capture rather than the reflected '
+                              'sky. Changes only how a direction becomes a coordinate.')
+
+    # The same rotation the surface reflects its sky through, so the window and the reflection cannot
+    # disagree about which way the level's sun is.
+    reflection_params = g.collection_param(mat, collection, 'ReflectionParams', -6, 21)
+
+    snell_index = g.cpd_scalar(mat, 'SnellIndex', 1.333, UW_SNELL_INDEX, 'Snell Window', -6, 22,
+                               "The water's refractive index, which is the only number the size of "
+                               'the window comes from.')
+    snell_feather = g.cpd_scalar(mat, 'SnellFeather', 0.06, UW_SNELL_FEATHER, 'Snell Window', -6, 23,
+                                 'Softens the last ring so it does not alias. The edge itself is the '
+                                 'surface refusing to transmit, not this.')
+    snell_rim = g.cpd_scalar(mat, 'SnellRim', 0.5, UW_SNELL_RIM, 'Snell Window', -6, 24,
+                             'How bright the ring at the edge of the window is.')
+    snell_brightness = g.cpd_scalar(mat, 'SnellBrightness', 1.0, UW_SNELL_BRIGHTNESS, 'Snell Window',
+                                    -6, 25, 'How bright the world above is through the window.')
+    snell_mirror = g.cpd_scalar(mat, 'SnellMirror', 0.35, UW_SNELL_MIRROR, 'Snell Window', -6, 26,
+                                'How much thicker the water reads outside the window, where the '
+                                'surface is a mirror of what is already behind this quad.')
+    snell_tan = g.cpd_scalar(mat, 'SnellCaptureTan', 3.7320508, UW_SNELL_CAPTURE_TAN, 'Snell Window',
+                             -6, 27, "The tangent of half the capture's field of view.")
+
+    snell = g.custom(mat, _CODE_SNELL, g.CMOT.CMOT_FLOAT3,
+                     ['CameraVector', 'SurfaceNormal', 'Index', 'Feather', 'EyeDepth', 'Clarity',
+                      'RimStrength', 'MirrorStrength'],
+                     [('Amount', g.CMOT.CMOT_FLOAT1), ('Mirror', g.CMOT.CMOT_FLOAT1)], -4, 22,
+                     'Where this ray reaches the air, and how much of the sky comes back down it.',
+                     includes=SNELL_INCLUDES)
+    g.link(camera_vector, '', snell, 'CameraVector')
+    g.link(surface_normal, '', snell, 'SurfaceNormal')
+    g.link(snell_index, '', snell, 'Index')
+    g.link(snell_feather, '', snell, 'Feather')
+    g.link(immersion, '', snell, 'EyeDepth')
+    g.link(clarity, '', snell, 'Clarity')
+    g.link(snell_rim, '', snell, 'RimStrength')
+    g.link(snell_mirror, '', snell, 'MirrorStrength')
+
+    sky_uv = g.custom(mat, _CODE_SNELL_SKY_UV, g.CMOT.CMOT_FLOAT2, ['Refracted', 'Params'], [],
+                      -3, 22, 'Where the refracted ray lands on the long-latitude sky.',
+                      includes=SNELL_INCLUDES)
+    g.link(snell, '', sky_uv, 'Refracted')
+    g.link(reflection_params, '', sky_uv, 'Params')
+
+    capture_uv = g.custom(mat, _CODE_SNELL_CAPTURE_UV, g.CMOT.CMOT_FLOAT2,
+                          ['Refracted', 'TanHalfFov'], [], -3, 24,
+                          'Where it lands in a capture that looks straight up.',
+                          includes=SNELL_INCLUDES)
+    g.link(snell, '', capture_uv, 'Refracted')
+    g.link(snell_tan, '', capture_uv, 'TanHalfFov')
+
+    window_uv = g.static_switch(mat, b_capture, capture_uv, '', sky_uv, '', -2, 23)
+
+    # One tap for either source, because they differ in where they look and not in what they are.
+    # The capture instances point this at the render target the capture writes.
+    above = g.texture_param(mat, 'SnellTexture', g.existing(g.TEX_ROOT + '/T_MobWaterSky'),
+                            'Snell Window', -1, 23, g.ST.SAMPLERTYPE_COLOR, window_uv, '',
+                            'The world above, as the window sees it.')
+
     # --- what comes out -----------------------------------------------------
     opacity = g.custom(mat, _CODE_UNDERWATER, g.CMOT.CMOT_FLOAT1,
                        ['SceneDepth', 'Clarity', 'Submersion', 'Wet', 'Bead', 'Strength'], [],
@@ -2132,8 +2268,32 @@ def build_underwater_material():
     g.link(meniscus_strength, '', colour, 'Strength')
     g.link(caustic_amount, '', colour, 'Caustics')
 
-    g.link_property(mat, colour, '', g.MP.MP_EMISSIVE_COLOR)
-    g.link_property(mat, opacity, '', g.MP.MP_OPACITY)
+    snell_opacity = g.custom(mat, _CODE_SNELL_OPACITY, g.CMOT.CMOT_FLOAT1,
+                             ['Base', 'Amount', 'Mirror', 'Wet', 'Submersion'], [], 0, 1,
+                             'The same absorption, made opaque where the window has replaced it.',
+                             includes=SNELL_INCLUDES)
+    g.link(opacity, '', snell_opacity, 'Base')
+    g.link(snell, 'Amount', snell_opacity, 'Amount')
+    g.link(snell, 'Mirror', snell_opacity, 'Mirror')
+    g.link(waterline, '', snell_opacity, 'Wet')
+    g.link(submersion, '', snell_opacity, 'Submersion')
+
+    snell_colour = g.custom(mat, _CODE_SNELL_COLOR, g.CMOT.CMOT_FLOAT3,
+                            ['Water', 'Above', 'Brightness', 'Amount', 'Wet', 'Submersion'], [],
+                            0, 5, 'The water, or the world above it where the window is open.',
+                            includes=SNELL_INCLUDES)
+    g.link(colour, '', snell_colour, 'Water')
+    g.link(above, '', snell_colour, 'Above')
+    g.link(snell_brightness, '', snell_colour, 'Brightness')
+    g.link(snell, 'Amount', snell_colour, 'Amount')
+    g.link(waterline, '', snell_colour, 'Wet')
+    g.link(submersion, '', snell_colour, 'Submersion')
+
+    out_colour = g.static_switch(mat, b_window, snell_colour, '', colour, '', 1, 5)
+    out_opacity = g.static_switch(mat, b_window, snell_opacity, '', opacity, '', 1, 1)
+
+    g.link_property(mat, out_colour, '', g.MP.MP_EMISSIVE_COLOR)
+    g.link_property(mat, out_opacity, '', g.MP.MP_OPACITY)
 
     g.spread(g.MEL.get_material_expressions(mat))
     g.MEL.recompile_material(mat)
@@ -2142,19 +2302,156 @@ def build_underwater_material():
     return mat
 
 
-def build_underwater_instance(master):
-    """The same plane with the dappling compiled in.
+SNELL_PROBE_NAME = 'M_MobWaterSnellProbe'
 
-    An instance rather than a second master, because everything but the one switch is shared - and a
-    second master is a second thing to keep in step with the component's data layout.
+# Every ray a submerged eye can cast, laid out as an image: how far off the surface normal across,
+# which way round across the other axis. Sampling directions rather than pixels is what lets the
+# check be about Snell's law rather than about where a quad happened to be.
+_CODE_SNELL_PROBE = """
+const float Theta = UV.x * (0.5f * MOB_WATER_PI);
+const float Phi = UV.y * (2.0f * MOB_WATER_PI);
+
+const float3 V = float3(sin(Theta) * cos(Phi), sin(Theta) * sin(Phi), cos(Theta));
+const float3 N = float3(0.0f, 0.0f, 1.0f);
+
+float3 Refracted;
+float Window;
+float Transmit;
+float Rim;
+MobWaterSnell(V, N, Index, Feather, Refracted, Window, Transmit, Rim);
+
+if (Mode < 0.5f)
+{
+	// The angle off the normal in half turns, which fits a channel without anybody scaling it.
+	return float3(acos(clamp(Refracted.z, -1.0f, 1.0f)) / MOB_WATER_PI, Transmit, Window);
+}
+
+const float2 Landed = MobWaterSnellCaptureUV(Refracted, TanHalfFov);
+return float3(Landed.x, Landed.y, Rim);
+"""
+
+
+def build_snell_probe():
+    """A material that refracts every direction at once and writes the answers out as pixels.
+
+    The whole point of it is that mob_water_verify can then hold Snell's law and the Fresnel
+    transmittance against what the shader actually computed. The window has no CPU side to compare
+    with - nothing in the game asks where the sky went - so this is the only thing that keeps the
+    disc the size physics says it is.
     """
-    instance = g.get_or_create_instance(g.MAT_ROOT, UNDERWATER_CAUSTIC_NAME, master)
+    mat = g.get_or_create_material(g.MAT_ROOT, SNELL_PROBE_NAME)
 
-    g.MEL.set_material_instance_static_switch_parameter_value(instance, 'bCaustics', True)
-    g.MEL.update_material_instance(instance)
-    g.save(instance)
+    # UI domain, because that is the domain the canvas draws with. A surface material handed to
+    # DrawMaterialToRenderTarget produces a target that is untouched black, with no warning anywhere.
+    mat.set_editor_property('material_domain', unreal.MaterialDomain.MD_UI)
+    mat.set_editor_property('blend_mode', unreal.BlendMode.BLEND_OPAQUE)
 
-    return instance
+    uv = g.expr(mat, unreal.MaterialExpressionTextureCoordinate, -3, 0)
+
+    index = g.scalar_param(mat, 'Index', 1.333, 'Probe', -3, 2, 'The refractive index to refract at.')
+    feather = g.scalar_param(mat, 'Feather', 0.0, 'Probe', -3, 3,
+                             'Zero by default: a softened edge is a tuned edge, and the check is '
+                             'about where the surface stops transmitting.')
+    tan_fov = g.scalar_param(mat, 'TanHalfFov', 3.7320508, 'Probe', -3, 4, '')
+    mode = g.scalar_param(mat, 'Mode', 0.0, 'Probe', -3, 5,
+                          '0 refracted angle, transmittance and window. 1 capture coordinates and rim.')
+
+    node = g.custom(mat, _CODE_SNELL_PROBE, g.CMOT.CMOT_FLOAT3,
+                    ['UV', 'Index', 'Feather', 'TanHalfFov', 'Mode'], [], -1, 2,
+                    'Snell-s window, as the GPU sees it.', includes=SNELL_INCLUDES)
+    g.link(uv, '', node, 'UV')
+    g.link(index, '', node, 'Index')
+    g.link(feather, '', node, 'Feather')
+    g.link(tan_fov, '', node, 'TanHalfFov')
+    g.link(mode, '', node, 'Mode')
+
+    g.link_property(mat, node, '', g.MP.MP_EMISSIVE_COLOR)
+
+    g.spread(g.MEL.get_material_expressions(mat))
+    g.MEL.recompile_material(mat)
+    g.save(mat)
+
+    return mat
+
+
+def build_snell_target():
+    """Where a capture of the world above is written for the window to read.
+
+    One target, so one eye at a time gets a captured window - which is why the sky source is the
+    default and this one is asked for.
+    """
+    path = g.TEX_ROOT + '/' + SNELL_TARGET_NAME
+
+    target = g.existing(path)
+    if target is None:
+        factory = unreal.TextureRenderTargetFactoryNew()
+        target = g.tools().create_asset(SNELL_TARGET_NAME, g.TEX_ROOT, unreal.TextureRenderTarget2D,
+                                        factory)
+
+    target.set_editor_property('size_x', SNELL_TARGET_SIZE)
+    target.set_editor_property('size_y', SNELL_TARGET_SIZE)
+
+    # A tonemapped view of the world, so eight bits a channel is what it already is by the time it
+    # gets here and sixteen would be a megabyte spent holding the same numbers.
+    target.set_editor_property('render_target_format', unreal.TextureRenderTargetFormat.RTF_RGBA8)
+
+    # Clamped, not wrapped. The rays that leave the frustum are the ones a degree or two inside the
+    # critical angle, and wrapping would answer them with the opposite side of the sky.
+    target.set_editor_property('address_x', unreal.TextureAddress.TA_CLAMP)
+    target.set_editor_property('address_y', unreal.TextureAddress.TA_CLAMP)
+
+    target.set_editor_property('clear_color', unreal.LinearColor(0.0, 0.0, 0.0, 1.0))
+
+    g.save(target)
+
+    return target
+
+
+def underwater_instance_name(variant):
+    """Has to agree with MobWaterUnderwaterVariant::Suffix, which is what the settings look up by."""
+    suffix = ''
+
+    if variant & UW_VARIANT_CAUSTICS:
+        suffix += '_Caustics'
+    if variant & UW_VARIANT_WINDOW:
+        suffix += '_Window'
+    if variant & UW_VARIANT_CAPTURE:
+        suffix += '_Capture'
+
+    return 'MI_MobWaterUnderwater' + suffix
+
+
+def build_underwater_instances(master, snell_target):
+    """The plane's permutations.
+
+    Instances rather than more masters, because everything but the switches is shared - and a second
+    master is a second thing to keep in step with the component's data layout.
+    """
+    built = []
+
+    for variant in UNDERWATER_VARIANTS:
+        name = underwater_instance_name(variant)
+        instance = g.get_or_create_instance(g.MAT_ROOT, name, master)
+
+        g.MEL.set_material_instance_static_switch_parameter_value(
+            instance, 'bCaustics', bool(variant & UW_VARIANT_CAUSTICS))
+        g.MEL.set_material_instance_static_switch_parameter_value(
+            instance, 'bSnellWindow', bool(variant & UW_VARIANT_WINDOW))
+        g.MEL.set_material_instance_static_switch_parameter_value(
+            instance, 'bSnellCapture', bool(variant & UW_VARIANT_CAPTURE))
+
+        # Only the capture variants read the target. The rest keep the sky the parameter defaults to,
+        # which is the one Set Up Water writes over with whatever the level is actually reflecting.
+        if (variant & UW_VARIANT_CAPTURE) and snell_target is not None:
+            g.MEL.set_material_instance_texture_parameter_value(instance, 'SnellTexture',
+                                                                snell_target)
+
+        g.MEL.update_material_instance(instance)
+        g.save(instance)
+
+        built.append(instance)
+
+    return built
 
 
 # ---------------------------------------------------------------------------
@@ -2528,11 +2825,17 @@ def build_all():
     for instance in build_material_instances(master):
         g.log('  instance %s' % instance)
 
+    snell_target = build_snell_target()
+    g.log('  target %s' % snell_target.get_path_name())
+
     underwater = build_underwater_material()
     g.log('  underwater %s' % underwater.get_path_name())
 
-    underwater_caustics = build_underwater_instance(underwater)
-    g.log('  underwater %s' % underwater_caustics.get_path_name())
+    for instance in build_underwater_instances(underwater, snell_target):
+        g.log('  underwater %s' % instance.get_path_name())
+
+    snell_probe = build_snell_probe()
+    g.log('  probe %s' % snell_probe.get_path_name())
 
     probe = build_parity_probe()
     g.log('  probe %s' % probe.get_path_name())

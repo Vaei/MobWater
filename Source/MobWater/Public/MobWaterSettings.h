@@ -77,19 +77,26 @@ public:
 	UPROPERTY(EditAnywhere, Config, Category="Reflection")
 	TSoftObjectPtr<class UTexture> ReflectionTexture;
 
-	/** What a camera under the surface looks through. */
-	UPROPERTY(EditAnywhere, Config, Category="Underwater")
-	TSoftObjectPtr<UMaterialInterface> UnderwaterMaterial;
-
 	/**
-	 * The same, with the light coming down through the water in it.
+	 * What a camera under the surface looks through, indexed by MobWaterUnderwaterVariant.
 	 *
-	 * A second material rather than a strength on the first, because caustics are two texture reads
-	 * on a quad that covers the screen and a compiler cannot fold away per-instance data however
-	 * small it is. Unset, a plane asked for caustics falls back to the plain one.
+	 * A set rather than one material, because caustics and Snell's window are both texture reads on
+	 * a quad that covers the screen, and a compiler cannot fold away per-instance data however small
+	 * it is. A plane asked for a combination that was never generated drops one feature at a time
+	 * rather than falling straight to the plain one.
 	 */
 	UPROPERTY(EditAnywhere, Config, Category="Underwater")
-	TSoftObjectPtr<UMaterialInterface> UnderwaterCausticMaterial;
+	FMobWaterMaterialSet UnderwaterMaterials;
+
+	/**
+	 * Where a scene capture writes the world above for Snell's window to read.
+	 *
+	 * One target, so one eye at a time gets a captured window. Split screen shares it, and the
+	 * second view would be reading the first view's sky - which is why the sky source is the default
+	 * and this one is asked for.
+	 */
+	UPROPERTY(EditAnywhere, Config, Category="Underwater")
+	TSoftObjectPtr<class UTextureRenderTarget2D> SnellTarget;
 
 	/**
 	 * Whether the local player's camera is given an underwater view of its own.
@@ -199,4 +206,7 @@ public:
 
 	/** Variant is a mask of MobWaterVariant flags. */
 	static UMaterialInterface* GetMaterial(EMobWaterShape Shape, int32 Variant);
+
+	/** Variant is a mask of MobWaterUnderwaterVariant flags. */
+	static UMaterialInterface* GetUnderwaterMaterial(int32 Variant);
 };

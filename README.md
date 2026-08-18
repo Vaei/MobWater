@@ -94,6 +94,7 @@ All of it costs one translucent plane, and runs anywhere - including the mobile 
 - **Absorption that hides distance** rather than only tinting it, marched the same way the surface is shaded
 - **Caustics on what is submerged**, projected from a volume that reads the same depth buffer - a light that casts a texture instead of a falloff
 - **The line at the surface**, from underneath, where the world above goes to reflection
+- **Snell's window**, the whole world above compressed into the forty-nine degree cone the surface lets through, ringed by the bright compressed horizon. Its edge is the full Fresnel transmittance reaching zero at the critical angle, not a fade - Schlick has no critical angle and would leave the rim passing a third of the sky. Filled from the sky the surface already reflects, for one texture read, or from a scene capture of the world above where the level's own shoreline should be in the disc
 - **It attaches itself**, to whichever camera is drawing the picture - the player's, a debug camera the moment it takes over, an editor viewport when nothing is playing
 - **The camera going under is its own event**, separate from any character going under, because in anything but a first person game they happen at different moments in different places. Bind `OnViewSubmergedChanged` for what belongs to a lens - droplets on surfacing, spatter, a muffle - and it carries how deep the camera had been, which is the number depth cannot give you once it has surfaced
 
