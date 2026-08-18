@@ -17,6 +17,18 @@
 
 #define LOCTEXT_NAMESPACE "MobWaterActorFactory"
 
+namespace
+{
+	/**
+	 * How wide the water is when it is first dropped, in world units.
+	 *
+	 * One number for a river and a waterfall both, because the usual reason to place a fall is that
+	 * a river runs off something - and two defaults that did not match would have to be reconciled
+	 * by hand on the first drop, every time.
+	 */
+	constexpr float MobWaterDefaultWidth = 300.f;
+}
+
 UMobWaterPoolFactory::UMobWaterPoolFactory()
 {
 	NewActorClass = AMobWaterPool::StaticClass();
@@ -99,7 +111,7 @@ void UMobWaterBodyFactory::PostSpawnActor(UObject* Asset, AActor* NewActor)
 			Spline->AddSplinePoint(FVector(0.f, 0.f, 0.f), ESplineCoordinateSpace::Local, false);
 			Spline->AddSplinePoint(FVector(800.f, 0.f, 0.f), ESplineCoordinateSpace::Local, false);
 
-			Spline->Widths = { 300.f, 300.f, 300.f };
+			Spline->Widths = { MobWaterDefaultWidth, MobWaterDefaultWidth, MobWaterDefaultWidth };
 		}
 
 		Spline->UpdateSpline();
@@ -197,10 +209,13 @@ void UMobWaterFallFactory::PostSpawnActor(UObject* Asset, AActor* NewActor)
 	if (UMobWaterFallSplineComponent* Lip = Waterfall->GetLipComponent())
 	{
 		// A straight lip across the drop, because an actor whose spline is two points on top of each
-		// other looks broken rather than new.
+		// other looks broken rather than new, and as wide as a river arrives, because that is what it
+		// will be running off.
+		const float Half = MobWaterDefaultWidth * 0.5f;
+
 		Lip->ClearSplinePoints(false);
-		Lip->AddSplinePoint(FVector(0.f, -300.f, 0.f), ESplineCoordinateSpace::Local, false);
-		Lip->AddSplinePoint(FVector(0.f, 300.f, 0.f), ESplineCoordinateSpace::Local, false);
+		Lip->AddSplinePoint(FVector(0.f, -Half, 0.f), ESplineCoordinateSpace::Local, false);
+		Lip->AddSplinePoint(FVector(0.f, Half, 0.f), ESplineCoordinateSpace::Local, false);
 		Lip->SetClosedLoop(false, false);
 
 		Lip->Drops = { 500.f, 500.f };
