@@ -25,6 +25,7 @@ import importlib
 import unreal
 
 import author_ripples
+import author_waterfall
 import mob_water_version
 import mob_water_graph as g
 import mob_water_spectrum
@@ -3012,6 +3013,12 @@ def build_all():
 
     for instance in build_material_instances(master):
         g.log('  instance %s' % instance)
+
+    # After the master, though it shares none of it. What it does share is the collection, the
+    # gradient and the textures, all of which have to exist before a fall names them as defaults.
+    importlib.reload(author_waterfall)
+    author_waterfall.build_all(collection, g.existing(GRADIENT_ASSET), g.existing(GRADIENT_TEXTURE),
+                               GRADIENT_ROWS)
 
     snell_target = build_snell_target()
     g.log('  target %s' % snell_target.get_path_name())

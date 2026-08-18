@@ -89,6 +89,20 @@ public:
 	FMobWaterMaterialSet UnderwaterMaterials;
 
 	/**
+	 * What a waterfall is drawn with, indexed by MobWaterFallVariant.
+	 *
+	 * Its own set rather than a fifth shape in Materials, because a fall is not a shape of the
+	 * surface: it shares the clock, the textures and the sky with a body of water and not one line of
+	 * its maths. A fall asked for a combination that was never generated drops one feature at a time
+	 * rather than falling straight to the plain one.
+	 */
+	UPROPERTY(EditAnywhere, Config, Category="Waterfall")
+	FMobWaterMaterialSet FallMaterials;
+
+	/** Variant is a mask of MobWaterFallVariant flags. */
+	static UMaterialInterface* GetFallMaterial(int32 Variant);
+
+	/**
 	 * Where a scene capture writes the world above for Snell's window to read.
 	 *
 	 * One target, so one eye at a time gets a captured window. Split screen shares it, and the

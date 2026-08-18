@@ -67,6 +67,26 @@ FString MobWaterVariant::Suffix(int32 Variant)
 	return Out;
 }
 
+FString MobWaterFallVariant::Suffix(int32 Variant)
+{
+	FString Out;
+
+	if (Variant & Foam)
+	{
+		Out += TEXT("_Foam");
+	}
+	if (Variant & Refraction)
+	{
+		Out += TEXT("_Refraction");
+	}
+	if (Variant & Gradient)
+	{
+		Out += TEXT("_Gradient");
+	}
+
+	return Out;
+}
+
 FString MobWaterUnderwaterVariant::Suffix(int32 Variant)
 {
 	FString Out;

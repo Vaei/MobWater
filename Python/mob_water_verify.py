@@ -48,6 +48,9 @@ SPECTRUM_SHADER = os.path.join(PLUGIN_ROOT, 'Shaders', 'Public', 'MobWaterSpectr
 UNDERWATER = os.path.join(PLUGIN_ROOT, 'Source', 'MobWater', 'Private', 'MobWaterUnderwaterComponent.cpp')
 GENERATOR = os.path.join(PLUGIN_ROOT, 'Python', 'author_water.py')
 
+FALL_SHADER = os.path.join(PLUGIN_ROOT, 'Shaders', 'Public', 'MobWaterFall.ush')
+FALL_GENERATOR = os.path.join(PLUGIN_ROOT, 'Python', 'author_waterfall.py')
+
 # The underwater plane's own layout, which is small and has nothing to do with a body of water's.
 # Named here rather than derived, so a rename on either side fails by name instead of by silence.
 EXPECTED_UNDERWATER = {
@@ -69,6 +72,74 @@ EXPECTED_UNDERWATER = {
     'SnellMirror': 'UW_SNELL_MIRROR',
 }
 
+
+# A waterfall's own layout. Its own contract rather than a continuation of the surface's, because a
+# fall is its own primitive drawing its own material - the two never share a draw, so they never
+# share a budget either.
+#
+# Several names appear in both, meaning different things at different indices, which is exactly why
+# the check below reads one namespace rather than the whole header.
+EXPECTED_FALL = {
+    'ThinColor': 0,
+    'GradientRow': 0,
+    'ThickColor': 3,
+    'Thickness': 6,
+    'ClarityDepth': 7,
+    'MinOpacity': 8,
+    'Unlit': 9,
+    'Roughness': 10,
+    'DetailStrength': 11,
+    'Size': 12,
+    'LipSpeed': 14,
+    'Gravity': 15,
+    'StreakSize': 16,
+    'ThinAmount': 18,
+    'Breakup': 19,
+    'EdgeFade': 20,
+    'FoamAmount': 21,
+    # The same float. The amount is the whole part in hundredths and how hard a streak edge is rides
+    # in the fraction.
+    'FoamSharpness': 21,
+    'LipFoam': 22,
+    'BaseFoam': 23,
+    'GlintGloss': 24,
+    'GlintStrength': 25,
+    'ReflectionStrength': 26,
+    'LipOffset': 27,
+    'LipFade': 29,
+    'RefractionStrength': 30,
+    'Num': 31,
+}
+
+# What each of those is called in author_waterfall, so a rename on either side fails by name rather
+# than by a fall that renders with somebody else's numbers in it.
+FALL_GENERATOR_NAMES = {
+    'ThinColor': 'CPD_THIN_COLOR',
+    'GradientRow': 'CPD_GRADIENT_ROW',
+    'ThickColor': 'CPD_THICK_COLOR',
+    'Thickness': 'CPD_THICKNESS',
+    'ClarityDepth': 'CPD_CLARITY_DEPTH',
+    'MinOpacity': 'CPD_MIN_OPACITY',
+    'Unlit': 'CPD_UNLIT',
+    'Roughness': 'CPD_ROUGHNESS',
+    'DetailStrength': 'CPD_DETAIL_STRENGTH',
+    'Size': 'CPD_SIZE',
+    'LipSpeed': 'CPD_LIP_SPEED',
+    'Gravity': 'CPD_GRAVITY',
+    'StreakSize': 'CPD_STREAK_SIZE',
+    'ThinAmount': 'CPD_THIN_AMOUNT',
+    'Breakup': 'CPD_BREAKUP',
+    'EdgeFade': 'CPD_EDGE_FADE',
+    'FoamAmount': 'CPD_FOAM_AMOUNT',
+    'LipFoam': 'CPD_LIP_FOAM',
+    'BaseFoam': 'CPD_BASE_FOAM',
+    'GlintGloss': 'CPD_GLINT_GLOSS',
+    'GlintStrength': 'CPD_GLINT_STRENGTH',
+    'ReflectionStrength': 'CPD_REFLECTION_STRENGTH',
+    'LipOffset': 'CPD_LIP_OFFSET',
+    'LipFade': 'CPD_LIP_FADE',
+    'RefractionStrength': 'CPD_REFRACTION_STRENGTH',
+}
 
 # The custom primitive data layout, as the README and the generator both understand it.
 #
@@ -176,6 +247,7 @@ def check_constants():
 
     types = _read(TYPES)
     surface = _read(SURFACE_SHADER)
+    fall = _read(FALL_SHADER)
 
     pairs = [
         ('Gravity', 'Gravity', 'MOB_WATER_GRAVITY', header, shader),
@@ -194,6 +266,9 @@ def check_constants():
         # What the shoreline foam slot's fraction is measured in. Apart, the foam depth still reads
         # right and every waterline surges by an amount nobody set.
         ('FoamRunUpRange', 'Range', 'MOB_WATER_RUNUP_RANGE', types, surface),
+        # What a fall's packed foam fraction is measured in. Apart, the amount still reads right and
+        # every streak edge is hard by an amount nobody set.
+        ('FallSharpnessRange', 'SharpnessRange', 'MOB_WATER_FALL_SHARPNESS_RANGE', types, fall),
         # Off by one and every tile boundary in the ocean carries a band of water from the wrong
         # frame, which is one texel wide and therefore looks like a compression artefact.
         ('Gutter', 'Gutter', 'MOB_WATER_SPECTRUM_GUTTER', spectrum_header, spectrum_shader),
@@ -216,13 +291,93 @@ def check_constants():
     return failures
 
 
-def check_cpd_indices():
-    """The custom primitive data layout the component writes and the material reads."""
-    text = _read(TYPES)
+def _namespace_indices(text, namespace):
+    """Every `static constexpr int32` inside one namespace, by name.
+
+    Scoped rather than read off the whole header, and that is load bearing: a fall and a body of
+    water both have a ClarityDepth, a MinOpacity and a Roughness, at different indices, and a
+    header-wide scan silently answers with whichever was declared last.
+    """
+    start = text.find('namespace ' + namespace)
+    if start < 0:
+        return {}
+
+    depth = 0
+    end = start
+    for index in range(text.find('{', start), len(text)):
+        if text[index] == '{':
+            depth += 1
+        elif text[index] == '}':
+            depth -= 1
+            if depth == 0:
+                end = index
+                break
+
+    block = text[start:end]
 
     found = {}
-    for match in re.finditer(r'static\s+constexpr\s+int32\s+(\w+)\s*=\s*(\d+)\s*;', text):
+    for match in re.finditer(r'static\s+constexpr\s+int32\s+(\w+)\s*=\s*(\d+)\s*;', block):
         found[match.group(1)] = int(match.group(2))
+
+    return found
+
+
+def check_fall_indices():
+    """A waterfall's own data layout, as the component writes it and the generator reads it.
+
+    Three sides rather than two: the header, the material generator, and the ceiling the engine
+    imposes. A fall is its own primitive with its own budget, so having room in it is not licence -
+    a write past thirty six is still discarded in silence.
+    """
+    found = _namespace_indices(_read(TYPES), 'MobWaterFallData')
+    generator = _read(FALL_GENERATOR)
+
+    failures = []
+
+    if not found:
+        return ['MobWaterFallData is gone from MobWaterTypes.h.']
+
+    for name, index in sorted(EXPECTED_FALL.items(), key=lambda item: item[1]):
+        if name not in found:
+            failures.append('MobWaterFallData::{0} is gone.'.format(name))
+            continue
+
+        if found[name] != index:
+            failures.append('MobWaterFallData::{0} moved from {1} to {2}, so the material and the '
+                            'component no longer mean the same thing by it.'
+                            .format(name, index, found[name]))
+            continue
+
+        constant = FALL_GENERATOR_NAMES.get(name)
+        if constant is None:
+            _log('  ok  MobWaterFallData::{0} = {1}'.format(name, index))
+            continue
+
+        match = re.search(r'^' + constant + r'\s*=\s*(\d+)\s*$', generator, re.MULTILINE)
+        if match is None:
+            failures.append('{0} is gone from author_waterfall.'.format(constant))
+        elif int(match.group(1)) != index:
+            failures.append('MobWaterFallData::{0} is {1} and {2} is {3}, so the fall writes one '
+                            'thing and reads another.'.format(name, index, constant, match.group(1)))
+        else:
+            _log('  ok  MobWaterFallData::{0} = {1}'.format(name, index))
+
+    over = sorted(n for n, i in EXPECTED_FALL.items()
+                  if n != 'Num' and i >= CUSTOM_PRIMITIVE_DATA_FLOATS)
+    if over:
+        failures.append('{0} of the fall-s parameters are past the end of the engine-s custom '
+                        'primitive data ({1} floats): {2}'
+                        .format(len(over), CUSTOM_PRIMITIVE_DATA_FLOATS, ', '.join(over)))
+    else:
+        _log('  ok  {0} of {1} custom primitive data floats used by a fall'
+             .format(EXPECTED_FALL['Num'], CUSTOM_PRIMITIVE_DATA_FLOATS))
+
+    return failures
+
+
+def check_cpd_indices():
+    """The custom primitive data layout the component writes and the material reads."""
+    found = _namespace_indices(_read(TYPES), 'MobWaterData')
 
     failures = []
     for name, index in sorted(EXPECTED_INDICES.items(), key=lambda item: item[1]):
@@ -1569,6 +1724,9 @@ def run():
 
     _log(' the underwater plane-s own data layout')
     failures += check_underwater_indices()
+
+    _log(' a waterfall-s own data layout')
+    failures += check_fall_indices()
 
     _log(" Snell-s window against Snell-s law")
     if unreal:

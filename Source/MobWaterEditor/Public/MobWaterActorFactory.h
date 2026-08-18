@@ -96,6 +96,24 @@ public:
 	virtual void PostSpawnActor(UObject* Asset, AActor* NewActor) override;
 };
 
+/**
+ * Drops a waterfall: a lip, a sheet hanging off it, and the churn where it lands.
+ *
+ * Its own factory rather than a shape of the body one, because a fall is not a body of water. It
+ * registers nothing, nothing floats on it, and the spline it is drawn from is an edge rather than an
+ * outline.
+ */
+UCLASS()
+class MOBWATEREDITOR_API UMobWaterFallFactory : public UActorFactory
+{
+	GENERATED_BODY()
+
+public:
+	UMobWaterFallFactory();
+
+	virtual void PostSpawnActor(UObject* Asset, AActor* NewActor) override;
+};
+
 /** Drops an area water is kept out of. */
 UCLASS()
 class MOBWATEREDITOR_API UMobWaterExclusionFactory : public UActorFactory

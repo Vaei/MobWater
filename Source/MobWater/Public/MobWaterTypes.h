@@ -353,3 +353,150 @@ namespace MobWaterData
 
 	static constexpr int32 Num = 36;
 }
+
+/**
+ * Which of a waterfall's materials to use.
+ *
+ * Axes of its own rather than MobWaterVariant's, because a fall shares almost nothing with a
+ * surface: there is no ripple field on a vertical sheet, no shoreline to foam against, and no bed
+ * under it to throw a caustic on. One namespace holding both would offer a fall a shore and a pond a
+ * plunge.
+ */
+namespace MobWaterFallVariant
+{
+	/** Streaks along the water, white at the lip and white at the plunge. */
+	static constexpr int32 Foam = 1 << 0;
+
+	/** Bends what is behind the sheet. The only feature that reads scene colour. */
+	static constexpr int32 Refraction = 1 << 1;
+
+	/**
+	 * The water's colour comes from a gradient ramp rather than an absorption between two colours.
+	 *
+	 * The same ramp and the same row a body of water reads, indexed by how far the sheet has been
+	 * drawn out rather than by how deep the water is - which is what lets a fall and the river it
+	 * comes out of carry one look preset between them.
+	 */
+	static constexpr int32 Gradient = 1 << 2;
+
+	static constexpr int32 Num = 8;
+
+	/** The name suffix the generator gives this combination. */
+	MOBWATER_API FString Suffix(int32 Variant);
+}
+
+/**
+ * The range a fall's foam sharpness is measured in.
+ *
+ * A range rather than the value, because the sharpness shares a slot with how much foam there is and
+ * only a bounded number fits in a fraction. Sixteen is a cut line with no gradient left in it, which
+ * is past anything that reads as water.
+ *
+ * Duplicated as MOB_WATER_FALL_SHARPNESS_RANGE in MobWaterFall.ush.
+ */
+namespace MobWaterFallFoam
+{
+	static constexpr float SharpnessRange = 16.f;
+}
+
+/**
+ * A waterfall's primitive data layout, shared by the component that writes it and the master
+ * material that reads it.
+ *
+ * Its own contract rather than a continuation of MobWaterData, because a fall is its own primitive
+ * drawing its own material: the two never share a draw, so they never share a budget either. There
+ * is room in this one, and that is not an invitation - the engine's thirty six is still the ceiling
+ * and a write past it is silently discarded.
+ */
+namespace MobWaterFallData
+{
+	/** Linear RGB of the water where the sheet is thinnest. Occupies 0, 1 and 2. */
+	static constexpr int32 ThinColor = 0;
+
+	/**
+	 * Which row of the colour atlas a gradient-graded fall reads.
+	 *
+	 * The same float as ThinColor's red, exactly as a body of water packs it: only one of the two
+	 * forks is ever compiled, so the six floats the colours take are free whenever this is wanted.
+	 */
+	static constexpr int32 GradientRow = 0;
+
+	/** Linear RGB of the water where the sheet is thickest, at the lip. Occupies 3, 4 and 5. */
+	static constexpr int32 ThickColor = 3;
+
+	/** How much water is in the sheet as it leaves the lip, in world units. */
+	static constexpr int32 Thickness = 6;
+
+	/** The water column over which the sheet stops reading as touching what is behind it. */
+	static constexpr int32 ClarityDepth = 7;
+
+	/** How opaque the sheet is where it is running over something. */
+	static constexpr int32 MinOpacity = 8;
+
+	/** How much of the water's colour is emitted rather than lit. */
+	static constexpr int32 Unlit = 9;
+
+	/** Surface roughness, which is what the specular reads. */
+	static constexpr int32 Roughness = 10;
+
+	/** How much of the scrolling detail normal reaches the sheet. */
+	static constexpr int32 DetailStrength = 11;
+
+	/** How wide and how tall the sheet is, in world units. Occupies 12 and 13. */
+	static constexpr int32 Size = 12;
+
+	/** How fast the water is going as it leaves the lip, in world units per second. */
+	static constexpr int32 LipSpeed = 14;
+
+	/** What accelerates it on the way down. Zero is water that hangs. */
+	static constexpr int32 Gravity = 15;
+
+	/** How long a streak is at the lip, and how wide, in world units. Occupies 16 and 17. */
+	static constexpr int32 StreakSize = 16;
+
+	/** How much the sheet thins as it is drawn out. */
+	static constexpr int32 ThinAmount = 18;
+
+	/** How far the stretch pulls the sheet apart into strands. */
+	static constexpr int32 Breakup = 19;
+
+	/** How far in from each side the sheet fades, as a fraction of its width. */
+	static constexpr int32 EdgeFade = 20;
+
+	/** How much foam the streaks carry, with their hardness in the fraction. */
+	static constexpr int32 FoamAmount = 21;
+
+	/** The same slot. How hard a streak edge is rides in its fraction. */
+	static constexpr int32 FoamSharpness = 21;
+
+	/** How far down from the lip the water is white, as a fraction of the drop. */
+	static constexpr int32 LipFoam = 22;
+
+	/** How far up from the plunge it is white, as a fraction of the drop. */
+	static constexpr int32 BaseFoam = 23;
+
+	/** How tight the sun's lobe on the sheet is. */
+	static constexpr int32 GlintGloss = 24;
+
+	/** How bright the sun is on the sheet. */
+	static constexpr int32 GlintStrength = 25;
+
+	/** How much sky the sheet reflects. */
+	static constexpr int32 ReflectionStrength = 26;
+
+	/**
+	 * Where the water feeding this fall actually is, at each end of the lip. Occupies 27 and 28.
+	 *
+	 * Written every frame from the same query buoyancy reads, so the top of the sheet rides the swell
+	 * on the river above it. Two, because a lip is a line and a wave reaches one end of it first.
+	 */
+	static constexpr int32 LipOffset = 27;
+
+	/** How far down the sheet that offset dies away, as a fraction of the drop. */
+	static constexpr int32 LipFade = 29;
+
+	/** How far the sheet bends what is behind it, in world units at one metre. */
+	static constexpr int32 RefractionStrength = 30;
+
+	static constexpr int32 Num = 31;
+}

@@ -22,6 +22,7 @@ window.DOCS = {
 			name: 'Fill a world',
 			pages: [
 				{ file: 'bodies.html', label: 'Bodies of water', blurb: 'pool, lake, river, ocean - which one a thing is' },
+				{ file: 'waterfalls.html', label: 'Waterfalls', blurb: 'a sheet down a drop, joined at both ends' },
 				{ file: 'waves.html', label: 'Waves', blurb: 'Gerstner, baked spectrum, and the clock they share' },
 				{ file: 'techniques.html', label: 'Techniques', blurb: 'depth, foam, refraction, exclusion - when and when not' },
 				{ file: 'stylized.html', label: 'Stylized', blurb: 'a gradient by depth, foam in hard contours' },
@@ -103,6 +104,11 @@ window.DOCS = {
 		'ripples.field':        { page: 'ripples.html', cap: 'The ripple field, and the same view of the water', file: 'ripples-field.png' },
 		'ripples.wake':         { page: 'ripples.html', cap: 'A wake, and the foam left where it has been', file: 'ripples-wake.png' },
 		'ripples.reflect':      { page: 'ripples.html', cap: 'A ripple reflecting off a hull', file: 'ripples-reflect.png' },
+
+		'fall.lip':             { page: 'waterfalls.html', cap: 'A lip drawn over a ledge, and the sheet it hangs', file: 'fall-lip.png' },
+		'fall.stretch':         { page: 'waterfalls.html', cap: 'The same fall at three heights: the streaks stretch and the sheet thins as the water speeds up', file: 'fall-stretch.png' },
+		'fall.join':            { page: 'waterfalls.html', cap: 'A swell crossing the lip, with the join on and off', file: 'fall-join.png' },
+		'fall.plunge':          { page: 'waterfalls.html', cap: 'The churn the plunge leaves in the pool below', file: 'fall-plunge.png' },
 
 		'exclusion.hull':       { page: 'exclusion.html', cap: 'A hull carved out of a lake, dry inside while it moves', file: 'exclusion-hull.png' },
 		'exclusion.shapes':     { page: 'exclusion.html', cap: 'Disc, sphere, box and rect, and the edge each makes', file: 'exclusion-shapes.png' },

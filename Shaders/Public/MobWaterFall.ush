@@ -1,0 +1,221 @@
+// Copyright (c) Jared Taylor
+
+#pragma once
+
+/*
+ * /MobWater/Public/MobWaterFall.ush
+ *
+ * A sheet of water hung down a drop.
+ *
+ * Everything in MobWaterSurface.ush is a plan view: the ripple field is looked down on, the shore
+ * distance is measured across the ground, an exclusion volume is a footprint, and a Gerstner wave
+ * moves an XY vertex in Z. A vertical sheet has none of those meanings, which is why a waterfall is
+ * its own material rather than a fifth shape of the surface - a wave on it would push the water
+ * sideways out of the fall, and the shore distance would be the distance to nothing.
+ *
+ * What it is instead is one number: how long ago the water at this pixel left the lip. Every
+ * appearance of a fall comes off that - the pattern rides down with the parcel it belongs to, the
+ * streaks stretch because the parcel is accelerating away from the one behind it, and the sheet
+ * thins for the same reason. That is why there is no scroll speed here. A texture panned at a
+ * constant rate over a fall reads as a curtain being pulled, and no amount of tuning fixes it,
+ * because water does not fall at a constant rate.
+ *
+ * Nothing here samples a texture, for the same reason nothing in MobWaterSurface.ush does: a Custom
+ * node emits its own sampler and has no shared-sampler path.
+ */
+
+#include "/MobWater/Public/MobWaterSurface.ush"
+
+/**
+ * How fast the water at this height is going, and how long it has been falling.
+ *
+ * Constant acceleration from the speed it left the lip at, which is the whole physical content of
+ * the material. Travel is what identifies a parcel of water: subtract it from the clock and every
+ * pixel of one parcel agrees on a single number, whatever height it is seen at.
+ *
+ * Gravity is a parameter rather than 980, because a stylized fall wants water that hangs.
+ */
+void MobWaterFallFlow(float V, float Height, float LipSpeed, float Gravity,
+	out float Speed, out float Travel)
+{
+	const float Fallen = max(V, 0.0f) * max(Height, 0.0f);
+	const float Launch = max(LipSpeed, 1.0f);
+	const float Pull = max(Gravity, 1.0f);
+
+	Speed = sqrt(Launch * Launch + 2.0f * Pull * Fallen);
+
+	// Falling for as long as it took to reach that speed. A fall told to hang has its water leaving
+	// the lip and never speeding up, so every parcel is the same age at every height and the pattern
+	// simply pans - which is a curtain, and a legal thing to ask for.
+	Travel = (Speed - Launch) / Pull;
+}
+
+/**
+ * How thin the sheet has been drawn out by the time it reaches here. 1 at the lip.
+ *
+ * The same water passing a slower section and a faster one has to be thinner in the faster one, so
+ * this is the ratio of the two speeds and not a fade someone chose. It is what puts the weight at
+ * the top of a fall.
+ */
+float MobWaterFallThin(float Speed, float LipSpeed)
+{
+	return saturate(max(LipSpeed, 1.0f) / max(Speed, 1.0f));
+}
+
+/**
+ * Where the two detail layers are read, in the frame the water itself is in.
+ *
+ * V runs down the sheet, and the coordinate handed out is the clock minus how long this water has
+ * been falling - so a mark stays on the parcel it was drawn on rather than sliding through it. That
+ * the marks stretch further apart lower down is not a second effect: they are spaced by how far the
+ * water travels in a fixed slice of time, and it travels further as it goes.
+ *
+ * The second layer is deliberately not a multiple of the first in either axis. Two layers on
+ * commensurate scales beat against each other and the beat is a pattern in its own right, which on a
+ * sheet this size reads as banding.
+ */
+void MobWaterFallUVs(float2 UV, float Width, float StreakLength, float StreakWidth,
+	float LipSpeed, float Time, float Travel,
+	out float2 UVA, out float2 UVB)
+{
+	// One turn of the pattern is a streak's length at the lip, expressed as the time the water takes
+	// to cover it. Below the lip the same slice of time covers more sheet, which is the stretch.
+	const float Rate = max(LipSpeed, 1.0f) / max(StreakLength, 1.0f);
+
+	const float Parcel = (Time - Travel) * Rate;
+	const float Across = UV.x * max(Width, 1.0f) / max(StreakWidth, 1.0f);
+
+	UVA = float2(Across, Parcel);
+	UVB = float2(Across * 0.61f + 0.37f, Parcel * 1.53f + 0.11f);
+}
+
+/**
+ * How much sheet there is at this pixel, before anything is drawn on it.
+ *
+ * The sides fade so the fall does not end on a polygon edge, and the top holds solid: a fall is fed
+ * by the river above it, so fading it in at the lip would open a gap between the two exactly where
+ * they are meant to be one body of water.
+ */
+float MobWaterFallSheet(float2 UV, float EdgeFade)
+{
+	const float FromEdge = 1.0f - abs(UV.x - 0.5f) * 2.0f;
+	return saturate(FromEdge / max(EdgeFade, 1e-4f));
+}
+
+/**
+ * The sheet coming apart into strands as it stretches.
+ *
+ * Weighted by how far it has been drawn out rather than by height, so a short fall stays whole and a
+ * long one breaks up on its own - and a fall told to hang breaks up nowhere, which is correct, since
+ * what tears the sheet is the water below outrunning the water above.
+ */
+float MobWaterFallBreakup(float Noise, float Thin, float Amount)
+{
+	const float Stretched = saturate(1.0f - Thin);
+	const float Bite = saturate(Amount) * Stretched;
+
+	// A threshold that opens as the water is drawn out, rather than a multiply. Thinning the whole
+	// sheet evenly is a fade; taking away the places the noise is darkest first is what leaves
+	// strands with water between them.
+	//
+	// Written so that no bite leaves the sheet whole. Handing the noise straight through at zero
+	// would put holes in a fall nobody asked to break up, at the lip, where the water has not been
+	// drawn out at all.
+	return saturate(1.0f - Bite + (Noise - 0.5f) * 2.0f * Bite);
+}
+
+/**
+ * How much water this pixel is looking through, in world units.
+ *
+ * The sheet's own thickness drawn out by the stretch, so the colour grades along the fall the same
+ * way the surface's grades with depth - which is what lets a fall and the river it comes out of
+ * share a look preset and a gradient row.
+ */
+float MobWaterFallColumn(float Thickness, float Thin)
+{
+	return max(Thickness, 0.0f) * Thin;
+}
+
+/** The hardest a fall's foam edge can be asked to be. */
+#define MOB_WATER_FALL_SHARPNESS_RANGE 16.0f
+
+/**
+ * How much foam the streaks carry, and how hard their edge is, out of the one slot they share.
+ *
+ * Hundredths of the amount in the whole part and the sharpness over its range in the fraction, which
+ * is the same packing the surface uses wherever two of its controls are one idea.
+ *
+ * Duplicated as MobWaterFallFoam::SharpnessRange in MobWaterTypes.h.
+ */
+void MobWaterFallUnpackFoam(float Packed, out float Amount, out float Sharpness)
+{
+	const float Whole = floor(Packed);
+
+	Amount = Whole * 0.01f;
+	Sharpness = (Packed - Whole) * MOB_WATER_FALL_SHARPNESS_RANGE;
+}
+
+/**
+ * The foam on a fall: streaks along the water, white at the lip, white at the plunge.
+ *
+ * Three sources rather than one, because they are three different things and a fall missing any of
+ * them reads wrong. The lip is where the sheet breaks over an edge, the plunge is where it stops,
+ * and the streaks in between are the aeration being carried down.
+ *
+ * Never above one. Foam is white, and the brightest thing on a fall should be the plunge rather
+ * than wherever two of these happened to overlap.
+ */
+float MobWaterFallFoam(float2 UV, float Noise, float Thin, float Amount, float Sharpness,
+	float LipFoam, float BaseFoam)
+{
+	// Streaks appear where the water has been drawn out, so a slow fat fall stays clear and a long
+	// one is white by the time it lands.
+	const float Aerated = saturate(1.0f - Thin);
+	const float Streaks = pow(saturate(Noise * (0.35f + Aerated)), max(Sharpness, 1e-2f));
+
+	const float AtLip = saturate(1.0f - UV.y / max(LipFoam, 1e-4f));
+	const float AtBase = saturate((UV.y - (1.0f - max(BaseFoam, 1e-4f))) / max(BaseFoam, 1e-4f));
+
+	const float Ends = max(AtLip * AtLip, AtBase * AtBase);
+
+	return saturate(max(Streaks * saturate(Amount), Ends));
+}
+
+/**
+ * How opaque the sheet is here.
+ *
+ * Two things, and they answer different questions. The stretch decides how much water there is; the
+ * depth column decides how near this pixel is to whatever it is running over, so the sheet meets
+ * rock and the pool below it on a soft line rather than on the polygon edge where the two intersect.
+ *
+ * The column reads small where the fall clings to the face and large where it hangs free, which is
+ * the right way round: a sheet pressed against wet rock is barely water, and one falling through air
+ * is all of it.
+ */
+float MobWaterFallOpacity(float Column, float ClarityDepth, float Sheet, float Foam, float MinOpacity)
+{
+	const float Contact = saturate(Column / max(ClarityDepth, 1e-4f));
+	const float Body = lerp(saturate(MinOpacity), 1.0f, Contact);
+
+	// Foam is froth rather than water, so it is opaque wherever it is, including on the thin edge of
+	// a strand. A fall that faded its own foam out would have the plunge disappear into the pool.
+	return saturate(Sheet * max(Body, saturate(Foam)));
+}
+
+/**
+ * How far the top of the sheet has to move to stay joined to the water feeding it.
+ *
+ * Two numbers rather than one, read at the ends of the lip and interpolated between them. The lip of
+ * a fall is a line, and a swell crossing it arrives at one end before the other - so a single offset
+ * would hold the join at the middle and open it at both ends, which is the failure this exists to
+ * stop. Two is a straight fit: exact wherever the lip is shorter than the wave crossing it, and
+ * closer than nothing wherever it is not.
+ *
+ * The offset dies away over LipFade so the base of the fall stays where it was placed. The top of a
+ * fall belongs to the river, and the bottom belongs to the ground.
+ */
+float MobWaterFallLip(float2 UV, float OffsetStart, float OffsetEnd, float LipFade)
+{
+	const float Along = lerp(OffsetStart, OffsetEnd, saturate(UV.x));
+	return Along * saturate(1.0f - UV.y / max(LipFade, 1e-4f));
+}

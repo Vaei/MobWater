@@ -16,6 +16,9 @@
 #include "MobWaterSplineComponent.h"
 #include "MobWaterLookPreset.h"
 #include "MobWaterMeshLibrary.h"
+#include "MobWaterFallActor.h"
+#include "MobWaterFallComponent.h"
+#include "MobWaterFallSplineComponent.h"
 #include "MobWaterOceanActor.h"
 #include "MobWaterPoolActor.h"
 #include "SMobWaterMenuEntry.h"
@@ -125,6 +128,16 @@ void FMobWaterEditorModule::StartupModule()
 	Prioritise(AMobWaterBody::StaticClass(), BodyCategories);
 	Prioritise(AMobWaterOcean::StaticClass(), OceanCategories);
 	Prioritise(UMobWaterSplineComponent::StaticClass(), { TEXT("Water") });
+
+	// The order someone builds a fall in: what it is made of, then how it looks, then where it lands.
+	const TArray<FName> FallCategories = {
+		TEXT("Fall"), TEXT("Colour"), TEXT("Surface"), TEXT("Foam"), TEXT("Refraction"),
+		TEXT("Join"), TEXT("Plunge"),
+	};
+
+	Prioritise(UMobWaterFallComponent::StaticClass(), FallCategories);
+	Prioritise(AMobWaterFall::StaticClass(), FallCategories);
+	Prioritise(UMobWaterFallSplineComponent::StaticClass(), { TEXT("Fall") });
 	Prioritise(UMobWaterUnderwaterComponent::StaticClass(), { TEXT("Underwater") });
 	Prioritise(UMobWaterExclusionComponent::StaticClass(), { TEXT("Exclusion") });
 	Prioritise(AMobWaterExclusion::StaticClass(), { TEXT("Exclusion") });
@@ -194,6 +207,12 @@ void FMobWaterEditorModule::RegisterPlacement()
 			Factory, FAssetData(AMobWaterOcean::StaticClass())));
 	}
 
+	if (UActorFactory* Factory = GEditor->FindActorFactoryByClass(UMobWaterFallFactory::StaticClass()))
+	{
+		Placement.RegisterPlaceableItem(PlacementCategoryHandle, MakeShared<FPlaceableItem>(
+			Factory, FAssetData(AMobWaterFall::StaticClass())));
+	}
+
 	if (UActorFactory* Factory = GEditor->FindActorFactoryByClass(UMobWaterExclusionFactory::StaticClass()))
 	{
 		Placement.RegisterPlaceableItem(PlacementCategoryHandle, MakeShared<FPlaceableItem>(
@@ -261,6 +280,9 @@ void FMobWaterEditorModule::ShutdownModule()
 	{
 		PropertyModule->UnregisterCustomClassLayout(TEXT("MobWaterComponent"));
 		PropertyModule->UnregisterCustomClassLayout(TEXT("MobWaterPool"));
+		PropertyModule->UnregisterCustomClassLayout(TEXT("MobWaterFall"));
+		PropertyModule->UnregisterCustomClassLayout(TEXT("MobWaterFallComponent"));
+		PropertyModule->UnregisterCustomClassLayout(TEXT("MobWaterFallSplineComponent"));
 		PropertyModule->UnregisterCustomClassLayout(TEXT("MobWaterBody"));
 		PropertyModule->UnregisterCustomClassLayout(TEXT("MobWaterOcean"));
 		PropertyModule->UnregisterCustomClassLayout(TEXT("MobWaterSplineComponent"));
@@ -383,6 +405,20 @@ TSharedRef<SWidget> FMobWaterEditorModule::BuildMenu()
 					.ToolTip(FText::FromString(Entry.Tip)),
 				FText::GetEmpty(), true);
 		}
+	}
+
+	if (UActorFactory* Factory = GEditor ? GEditor->FindActorFactoryByClass(UMobWaterFallFactory::StaticClass()) : nullptr)
+	{
+		Menu.AddWidget(
+			SNew(SMobWaterMenuEntry, Factory,
+				FMobWaterEditorStyle::Get().GetBrush(FMobWaterEditorStyle::GetMenuIconName()),
+				AMobWaterFall::StaticClass())
+				.Label(LOCTEXT("FallRow", "Waterfall"))
+				.ToolTip(LOCTEXT("FallRowTip",
+					"A sheet of water hung down a drop. The spline is the lip and every point on it "
+					"carries how far the water falls from there. It is not a body of water: nothing "
+					"floats on a waterfall, so it registers none.")),
+			FText::GetEmpty(), true);
 	}
 
 	if (UActorFactory* Factory = GEditor ? GEditor->FindActorFactoryByClass(UMobWaterExclusionFactory::StaticClass()) : nullptr)

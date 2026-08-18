@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Waterfalls &middot; MobWater</title>
+<link rel="icon" href="assets/icon.png">
+<link rel="stylesheet" href="assets/docs.css">
+<script>try{var t=localStorage.getItem('mob-theme');document.documentElement.dataset.theme=t||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light')}catch(e){}</script>
+<script src="assets/site.js" defer></script>
+<script src="assets/docs.js" defer></script>
+</head>
+<body>
+<main>
+
+<h1>Waterfalls</h1>
+<p class="lede">A sheet hung down a drop, joined to the river above it and churning the pool below.</p>
+
+<h2>Not a shape of water</h2>
+
+<p>A waterfall is its own actor, its own component and its own material. That is not tidiness - it is the only arrangement that works, and it is worth knowing why before building on it.</p>
+
+<p>Every meaning a <a href="bodies.html">body of water</a> attaches to its own geometry is a plan view. The <a href="ripples.html">ripple field</a> is looked down on. The shore distance is measured across the ground. An <a href="exclusion.html">exclusion volume</a> is a footprint. A Gerstner wave moves an XY vertex in Z. Stand any of that on end and it stops meaning anything: a wave on a vertical sheet pushes water sideways <i>out</i> of the fall, and the distance to the shore is the distance to nothing.</p>
+
+<p>So what is shared is what is genuinely shared - the clock, the normal and foam textures, the sky, the colour ramp, and the look preset. A fall that does not match the river it comes out of is worse than no fall at all.</p>
+
+<div class="important">
+A waterfall <b>does not register as a body of water</b>. Nothing floats on one, and a buoyancy query that found a fall would answer with a surface standing on end and lift whatever asked straight up the cliff. A character standing in the plunge is in whatever pool is underneath it.
+</div>
+
+<h2>Drawing one</h2>
+
+<p><b>Water &rarr; Waterfall</b>, or drag the row into the level. The actor is a spline and a sheet:</p>
+
+<div class="tw"><table class="free">
+<thead><tr><th>Property</th><th>Default</th><th></th></tr></thead>
+<tbody>
+<tr><td><b>Drops</b></td><td>500 cm</td><td>how far the water falls at each point along the lip. Per point, so an uneven ledge over a sloped plunge pool is one actor. Short lists are padded with the last entry rather than refused, because a spline gains points by being dragged</td></tr>
+<tr><td><b>Overhang</b></td><td>0 cm</td><td>how far the base stands out from the lip. Zero hangs straight down, off an overhang. Positive leans it out the way the water is going, which is a fall running down a slope</td></tr>
+<tr><td><b>Mirror</b></td><td>off</td><td>which side of the lip the water goes over. There is nothing in a line to say which side the drop is on, so this is a checkbox rather than a guess that is wrong half the time</td></tr>
+<tr><td><b>Segments Along</b></td><td>24</td><td>how finely the lip is cut across its length</td></tr>
+<tr><td><b>Segments Down</b></td><td>12</td><td>and on the way down. The lip join moves the top rows and leaves the bottom where it was placed, so this decides whether that blend is a curve or a crease. Below about six it creases</td></tr>
+</tbody>
+</table></div>
+
+<div data-shot="fall.lip"></div>
+
+<h2>One number the whole thing rests on</h2>
+
+<p>How long ago the water at a pixel left the lip.</p>
+
+<p>Everything a fall looks like comes off that. The water leaves at <b>Lip Speed</b> and accelerates under <b>Gravity</b>, so a parcel that left a moment ago is above one that left before it and travelling slower. Mark the sheet by which parcel a pixel belongs to and the pattern rides down <i>with</i> the water rather than sliding through it - and it stretches on the way, because the same slice of time covers more sheet lower down.</p>
+
+<p>That is also why there is no scroll speed here. A texture panned at a constant rate over a fall reads as a curtain being pulled, and no amount of tuning fixes it, because water does not fall at a constant rate.</p>
+
+<div data-shot="fall.stretch"></div>
+
+<p>Two more things fall out of the same arithmetic rather than being separate features:</p>
+
+<ul>
+<li><b>The sheet thins.</b> The same water passing a faster section has to be thinner in it. That is what puts the weight at the top of a fall, and <b>Thin Amount</b> is how much of it to keep - 0 holds full thickness all the way down, which reads as a printed curtain.</li>
+<li><b>It comes apart.</b> <b>Breakup</b> is weighted by how far the water has been drawn out, not by how far down it is, so a short fall stays whole and a long one breaks into strands on its own. A fall told to hang breaks up nowhere, which is correct: what tears a sheet is the water below outrunning the water above.</li>
+</ul>
+
+<div class="note">
+Set <b>Gravity</b> to zero for water that hangs. It never stretches, so it never thins and never breaks up, and the pattern simply pans. That is a stylized fall rather than a slow one, and it is a legal thing to ask for.
+</div>
+
+<div class="tw"><table class="free">
+<thead><tr><th>Property</th><th>Default</th><th></th></tr></thead>
+<tbody>
+<tr><td><b>Lip Speed</b></td><td>260 cm/s</td><td>how fast the water leaves. Everything else is measured against it. A fall that reads as slack has this too low, not its streaks too long</td></tr>
+<tr><td><b>Gravity</b></td><td>980 cm/s&sup2;</td><td>what accelerates it. The world&rsquo;s own by default, because that is what makes a fall read as tall</td></tr>
+<tr><td><b>Streak Length</b></td><td>320 cm</td><td>how long a streak is <i>at the lip</i>. Below that it stretches on its own</td></tr>
+<tr><td><b>Streak Width</b></td><td>180 cm</td><td>and how wide</td></tr>
+<tr><td><b>Thin Amount</b></td><td>0.7</td><td>how much the sheet thins as it is drawn out</td></tr>
+<tr><td><b>Breakup</b></td><td>0.35</td><td>how far the stretch pulls it apart into strands</td></tr>
+<tr><td><b>Edge Fade</b></td><td>0.08</td><td>how far in from each side the sheet fades, as a fraction of its width. 0 ends the fall on a polygon edge</td></tr>
+<tr><td><b>Thickness</b></td><td>60 cm</td><td>how much water is in the sheet at the lip. The colour is graded by this the way a body of water is graded by its depth, which is what lets a fall and its river share a look</td></tr>
+</tbody>
+</table></div>
+
+<h2>The two joins</h2>
+
+<p>The work in a waterfall is not the sheet. It is the two places the sheet meets water that already exists, and both are easy to leave until they are expensive.</p>
+
+<h3>The lip</h3>
+
+<p>With <b>Join To Water</b> on, the fall reads the water at each end of its lip - the same query <a href="queries.html">buoyancy</a> makes - and moves the top rows onto whatever surface is actually there. Without it a swell passing the lip detaches the fall from the river on every wave.</p>
+
+<p>Two readings rather than one, because a lip is a line and a wave reaches one end of it before the other. A single offset would hold the join in the middle and open it at both sides. Two is a straight fit across the lip: exact wherever the lip is shorter than the wave crossing it, and closer than nothing wherever it is not.</p>
+
+<div data-shot="fall.join"></div>
+
+<div class="tw"><table class="free">
+<thead><tr><th>Property</th><th>Default</th><th></th></tr></thead>
+<tbody>
+<tr><td><b>Join To Water</b></td><td>on</td><td>off is right for a fall coming out of a pipe or a rock face, where there is no river above it to follow</td></tr>
+<tr><td><b>Lip Fade</b></td><td>0.25</td><td>how far down the sheet the offset dies away. The top of a fall belongs to the river and the bottom belongs to the ground, so it has to be spent somewhere between them. Too small and the blend creases; too large and the plunge moves with the swell, which reads as the whole cliff breathing</td></tr>
+<tr><td><b>Max Lip Offset</b></td><td>150 cm</td><td>a guard rather than a look. A fall placed over the wrong body, or over an ocean whose surface is nowhere near the lip, would otherwise be dragged off the cliff by a large constant. Clamped, it is visibly wrong in one place instead</td></tr>
+</tbody>
+</table></div>
+
+<h3>The plunge</h3>
+
+<p>The base places a <b>persistent disturbance</b> in the <a href="ripples.html">ripple field</a>, so the pool below never settles and the churn spreads out of it and reflects off whatever it meets - because the field is a wave equation rather than a decal that fades. Turn <b>Plunge</b> off for a fall landing on rock, where a churn in a pool that is not there is a ripple in mid air.</p>
+
+<p>One disturbance rather than a row of them. Stamps add where they overlap, so a line of them along the base builds a mound instead of a churn; its radius comes from how wide the lip is.</p>
+
+<div data-shot="fall.plunge"></div>
+
+<h2>Foam, and how opaque it is</h2>
+
+<p>Three sources, because they are three different things and a fall missing any of them reads wrong. <b>Lip Foam</b> is where the sheet breaks over the edge, <b>Base Foam</b> is the plunge, and the streaks between them are the aeration being carried down - which is why they appear where the water has been drawn out, so a slow fat fall stays clear and a long one is white by the time it lands.</p>
+
+<p>The strands and the foam read <i>one</i> noise, and that is not a saving. The strands are where the water is and the froth rides on them; a second noise would put the foam in the gaps.</p>
+
+<p>Opacity answers two questions at once and they are separate. The stretch decides how much water there is. The depth column decides how near the pixel is to whatever it is running over, so the sheet meets rock and the pool on a soft line rather than on the polygon edge where they intersect - <b>Clarity Depth</b> is that softness, and <b>Min Opacity</b> is how solid the sheet stays where it is pressed against something.</p>
+
+<h2>Spray</h2>
+
+<p>The plume that leaves the water where a fall lands is not a surface. It has a life of its own, and no sheet holds one. MobWater draws none of it: bind the <a href="ripples.html">plunge</a> to whatever Niagara a project has, or hang it off the <a href="waves.html#surf-points">surf event</a> the same way a wave breaking on a rock is.</p>
+
+<h2>What a waterfall cannot do here</h2>
+
+<p>Worth knowing before building on it, because each of these is a property of the model rather than a gap someone forgot to fill.</p>
+
+<ul>
+<li><b>It is a sheet, not a volume.</b> The material draws one surface. A fall thick enough to be looked into - a torrent with water visibly rolling inside it - is geometry, and belongs to the project.</li>
+<li><b>The lip is fitted, not sampled.</b> Two readings and a straight line between them. A lip much longer than the swell crossing it has a join that is right at both ends and approximate in the middle. The fix is more falls along the ledge, which is also what the drop wants.</li>
+<li><b>Nothing floats on it and nothing is in it.</b> It registers no body, so <a href="queries.html">queries</a>, <a href="characters.html">wading and swimming</a>, buoyancy and the <a href="underwater.html">underwater view</a> all pass straight through. Put a pool at the bottom.</li>
+<li><b>It makes no hole in the water it lands in.</b> The plunge pushes the field; it does not carve the pool. A fall that should displace the surface it lands in needs an <a href="exclusion.html">exclusion volume</a> there as well.</li>
+<li><b>One plunge to a fall.</b> Its radius follows the lip&rsquo;s length, so a very wide fall pushes one wide, soft area rather than a line of separate impacts. Two falls side by side is the way to get two.</li>
+<li><b>It does not read the river&rsquo;s flow.</b> <b>Lip Speed</b> is authored rather than taken from the body above, because a body&rsquo;s flow defaults to nothing and a fall that inherited it would be dead on most rivers. Set the two to match.</li>
+<li><b>The sheet does not know what is behind it.</b> It reads the depth buffer for how near it is to the rock, and nothing else - so it cannot part around an outcrop or run faster where the face steepens. Shape those with the lip and the drops.</li>
+</ul>
+
+<h2>Cost</h2>
+
+<p>Its own master and eight instances, which is the whole permutation count: <b>Foam</b>, <b>Refraction</b> and <b>Gradient</b>, and nothing else. There is no ripple field on a vertical sheet, no shoreline to foam against, and no bed under it to throw a caustic on, so none of those axes exist here.</p>
+
+<p>The measured figures are on the <a href="performance.html">cost page</a> beside the surface&rsquo;s. The vertex count is small - a fall displaces only to meet its lip - and the pixel count is most of it.</p>
+
+</main>
+</body>
+</html>

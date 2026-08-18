@@ -83,6 +83,20 @@ Not officially released. Expect updates without versioning, and a changelog that
 <li>Exclusion subtracted from the CPU query: a fully excluded point answers no water, a partly excluded one has its immersion scaled by what is left, and the amount is reported</li>
 </ul>
 
+<h3>Waterfalls</h3>
+
+<ul>
+<li>A waterfall actor: a spline for the lip, a sheet hung down it, and the churn where it lands. Its own component and its own master material, because every meaning a body of water attaches to its own geometry is a plan view - the ripple field, the shore distance, an exclusion footprint, a wave moving an XY vertex in Z - and none of it survives being stood on end</li>
+<li>Per point drops, so an uneven ledge over a sloped plunge pool is one actor, and an overhang so a sheet can lean out the way the water is going</li>
+<li>The sheet is drawn by how long ago the water at a pixel left the lip. The pattern rides down with the parcel it belongs to rather than sliding through it, and it stretches on the way because the same slice of time covers more sheet lower down. That is also why there is no scroll speed: a texture panned at a constant rate reads as a curtain being pulled, and water does not fall at a constant rate</li>
+<li>The sheet thins and comes apart into strands out of the same arithmetic rather than as separate controls, weighted by how far the water has been drawn out - so a short fall stays whole, a long one breaks up on its own, and a fall told to hang does neither</li>
+<li>The lip joins to the water feeding it, read at both ends of the line and fitted between them, so a swell crossing the lip does not detach the fall from the river on every wave. Clamped, so a fall placed over the wrong body is visibly wrong in one place rather than dragged off the cliff</li>
+<li>The base places a persistent disturbance in the ripple field, so the pool below never settles and the churn spreads and reflects the way anything else in that field does</li>
+<li>Shares the clock, the textures, the sky, the colour ramp and the look preset with the water it comes out of. A fall that does not match its river is worse than no fall</li>
+<li>Registers no body of water, deliberately: nothing floats on a waterfall, and a buoyancy query that found one would lift whatever asked straight up the cliff</li>
+<li>Eight instances, which is the whole permutation count - foam, refraction and gradient. There is no ripple field on a vertical sheet, no shoreline to foam against and no bed to throw a caustic on</li>
+</ul>
+
 <h3>Surf</h3>
 
 <ul>
@@ -145,6 +159,9 @@ Not officially released. Expect updates without versioning, and a changelog that
 <h3>Known gaps</h3>
 
 <ul>
+<li>A waterfall is a sheet rather than a volume. A torrent thick enough to be looked into is geometry and belongs to the project</li>
+<li>Its lip join is two readings and a straight line between them, so a lip much longer than the swell crossing it is right at both ends and approximate in the middle</li>
+<li>A fall makes no hole in the water it lands in. The plunge pushes the field; carving the pool needs an exclusion volume as well</li>
 <li>A shoaling wave rises, leans and breaks white; it cannot curl over. A Gerstner wave pinches to a cusp and stops, and a heightfield cannot hold two heights over one point. A genuine overturning breaker is a mesh standing on the surface, and belongs to the project</li>
 <li>Four volumes shoal at once, the nearest to the view, being the four the surface already carves with. A mesh outline cannot shoal at all - its shape is a texture and the vertex shader does not read one</li>
 <li>The baked sea dies into an obstacle and does not rise against it. Phillips is a deep water sea state, so Green's law is not defined for it</li>

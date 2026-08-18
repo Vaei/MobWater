@@ -36,6 +36,7 @@ None of the numbers below is the real cost. Water is a translucent plane and the
 <thead><tr><th></th><th>Vertex</th><th>Pixel</th><th>Samplers</th><th>Interpolators</th></tr></thead>
 <tbody>
 <tr><td><code>M_MobWater</code></td><td>1055</td><td>1210</td><td>7</td><td>4</td></tr>
+<tr><td><code>M_MobWaterFall</code></td><td>281</td><td>982</td><td>6</td><td>0</td></tr>
 <tr><td><code>M_MobWaterUnderwater</code></td><td>250</td><td>168</td><td>2</td><td>0</td></tr>
 <tr><td><code>MI_MobWaterUnderwater_Caustics</code></td><td>250</td><td>197</td><td>3</td><td>0</td></tr>
 <tr><td><code>MI_MobWaterUnderwater_Window</code></td><td>250</td><td>287</td><td>3</td><td>0</td></tr>
@@ -62,6 +63,8 @@ The vertex count is high because the wave sum happens there: eight Gerstner wave
 <h2>Permutations</h2>
 
 <p><b>92 instances</b>: twenty five each for Box, Disc and Spline, and seventeen for the Ocean.</p>
+
+<p>A <a href="waterfalls.html">waterfall</a> is a family of its own and a small one: <b>eight</b>, over foam, refraction and the gradient. There is no ripple field on a vertical sheet, no shoreline to foam against and no bed under it to throw a caustic on, so those axes do not exist there at all.</p>
 
 <div class="tw"><table>
 <thead><tr><th>Axis</th><th></th></tr></thead>

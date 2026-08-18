@@ -45,6 +45,7 @@ CONTENT_VERSION = '1.0.0'
 GENERATOR_SOURCES = (
     'author_water.py',
     'author_ripples.py',
+    'author_waterfall.py',
     'mob_water_graph.py',
     'mob_water_textures.py',
     'mob_water_spectrum.py',
@@ -55,6 +56,7 @@ GENERATOR_SOURCES = (
 REQUIRED = (
     '/MobWater/Materials/M_MobWater',
     '/MobWater/Materials/M_MobWaterUnderwater',
+    '/MobWater/Materials/M_MobWaterFall',
     '/MobWater/Materials/MI_MobWaterUnderwater_Caustics',
     '/MobWater/Materials/M_MobWaterParity',
     '/MobWater/Materials/M_MobWaterSpectrumParity',

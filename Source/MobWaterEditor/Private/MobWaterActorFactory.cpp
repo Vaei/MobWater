@@ -5,6 +5,9 @@
 #include "MobWaterBodyActor.h"
 #include "MobWaterComponent.h"
 #include "MobWaterExclusionActor.h"
+#include "MobWaterFallActor.h"
+#include "MobWaterFallComponent.h"
+#include "MobWaterFallSplineComponent.h"
 #include "MobWaterLookPreset.h"
 #include "MobWaterOceanActor.h"
 #include "MobWaterSplineComponent.h"
@@ -171,6 +174,52 @@ void UMobWaterOceanFactory::PostSpawnActor(UObject* Asset, AActor* NewActor)
 
 		Water->ApplySurface();
 	}
+}
+
+UMobWaterFallFactory::UMobWaterFallFactory()
+{
+	NewActorClass = AMobWaterFall::StaticClass();
+	bUseSurfaceOrientation = false;
+
+	DisplayName = LOCTEXT("Waterfall", "Waterfall");
+}
+
+void UMobWaterFallFactory::PostSpawnActor(UObject* Asset, AActor* NewActor)
+{
+	Super::PostSpawnActor(Asset, NewActor);
+
+	AMobWaterFall* Waterfall = Cast<AMobWaterFall>(NewActor);
+	if (!Waterfall)
+	{
+		return;
+	}
+
+	if (UMobWaterFallSplineComponent* Lip = Waterfall->GetLipComponent())
+	{
+		// A straight lip across the drop, because an actor whose spline is two points on top of each
+		// other looks broken rather than new.
+		Lip->ClearSplinePoints(false);
+		Lip->AddSplinePoint(FVector(0.f, -300.f, 0.f), ESplineCoordinateSpace::Local, false);
+		Lip->AddSplinePoint(FVector(0.f, 300.f, 0.f), ESplineCoordinateSpace::Local, false);
+		Lip->SetClosedLoop(false, false);
+
+		Lip->Drops = { 500.f, 500.f };
+		Lip->UpdateSpline();
+	}
+
+	if (UMobWaterFallComponent* Sheet = Waterfall->GetFallComponent())
+	{
+		// Dropped on a look for the same reason a pool is: the class defaults are a legal fall and
+		// not a good looking one, and they would not match the water it is falling out of either.
+		if (UMobWaterLookPreset* Look = LoadObject<UMobWaterLookPreset>(
+			nullptr, TEXT("/MobWater/Looks/WL_MobWater_Realistic")))
+		{
+			Sheet->LookPreset = Look;
+			Sheet->ApplyLookPreset();
+		}
+	}
+
+	Waterfall->RebuildSurface();
 }
 
 UMobWaterExclusionFactory::UMobWaterExclusionFactory()

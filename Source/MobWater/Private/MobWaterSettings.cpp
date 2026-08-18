@@ -3,6 +3,7 @@
 #include "MobWaterSettings.h"
 
 #include "MobWaterComponent.h"
+#include "MobWaterFallComponent.h"
 #include "MobWaterSpectrum.h"
 #include "MobWaterModule.h"
 #include "MobWaterUnderwaterComponent.h"
@@ -66,6 +67,18 @@ UMobWaterSettings::UMobWaterSettings()
 			FSoftObjectPath(FString::Printf(TEXT("/MobWater/Materials/%s.%s"), *Name, *Name)));
 	}
 
+	FallMaterials.Variants.SetNum(MobWaterFallVariant::Num);
+	for (int32 Variant = 0; Variant < MobWaterFallVariant::Num; ++Variant)
+	{
+		const FString Suffix = MobWaterFallVariant::Suffix(Variant);
+		const FString Name = Suffix.IsEmpty()
+			? FString(TEXT("M_MobWaterFall"))
+			: FString::Printf(TEXT("MI_MobWaterFall%s"), *Suffix);
+
+		FallMaterials.Variants[Variant] = TSoftObjectPtr<UMaterialInterface>(
+			FSoftObjectPath(FString::Printf(TEXT("/MobWater/Materials/%s.%s"), *Name, *Name)));
+	}
+
 	SnellTarget = TSoftObjectPtr<UTextureRenderTarget2D>(FSoftObjectPath(TEXT("/MobWater/Textures/RT_MobWaterSnell.RT_MobWaterSnell")));
 
 	UnderwaterComponent = UMobWaterUnderwaterComponent::StaticClass();
@@ -99,6 +112,16 @@ void UMobWaterSettings::RefreshPlacedWater()
 		{
 			Water->ApplySurface();
 			Water->MarkRenderStateDirty();
+		}
+	}
+
+	for (TObjectIterator<UMobWaterFallComponent> It; It; ++It)
+	{
+		UMobWaterFallComponent* Sheet = *It;
+		if (IsValid(Sheet) && Sheet->GetWorld())
+		{
+			Sheet->ApplySurface();
+			Sheet->MarkRenderStateDirty();
 		}
 	}
 }
@@ -178,6 +201,37 @@ UMaterialInterface* UMobWaterSettings::GetMaterial(EMobWaterShape Shape, int32 V
 #if WITH_EDITOR
 		OnMobWaterMaterialMissing.Broadcast(Shape);
 #endif
+	}
+
+	return nullptr;
+}
+
+UMaterialInterface* UMobWaterSettings::GetFallMaterial(int32 Variant)
+{
+	const FMobWaterMaterialSet& Set = GetDefault<UMobWaterSettings>()->FallMaterials;
+
+	// Refraction goes first, being the one a platform may have refused to compile at all. Then the
+	// gradient, which costs the fall its palette and leaves it water. Foam is last: a fall without it
+	// is a clear sheet, which is a look, and a fall without any of the three is still a waterfall.
+	static constexpr int32 DropOrder[] = { MobWaterFallVariant::Refraction,
+		MobWaterFallVariant::Gradient, MobWaterFallVariant::Foam };
+	static constexpr int32 NumDrops = static_cast<int32>(UE_ARRAY_COUNT(DropOrder));
+
+	int32 Wanted = Variant;
+	for (int32 Attempt = 0; Attempt <= NumDrops; ++Attempt)
+	{
+		if (Set.Variants.IsValidIndex(Wanted))
+		{
+			if (UMaterialInterface* Material = Set.Variants[Wanted].LoadSynchronous())
+			{
+				return Material;
+			}
+		}
+
+		if (Attempt < NumDrops)
+		{
+			Wanted &= ~DropOrder[Attempt];
+		}
 	}
 
 	return nullptr;
