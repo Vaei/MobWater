@@ -135,6 +135,12 @@ Set <b>Gravity</b> to zero for water that hangs. It never stretches, so it never
 <li><b>The sheet does not know what is behind it.</b> It reads the depth buffer for how near it is to the rock, and nothing else - so it cannot part around an outcrop or run faster where the face steepens. Shape those with the lip and the drops.</li>
 </ul>
 
+<h2>Asserted, not eyeballed</h2>
+
+<p><b>Water &rarr; Verify Contract</b> places a fall over a real river and reads the join back. The lip has to sit on the water the query answers at <i>both</i> ends, and those two have to differ - which is the only thing that tells a straight fit across the lip from one reading used twice. It also counts the bodies of water in the world before and after, because a fall that registered one would float whatever walked into it up the cliff.</p>
+
+<p>The last run: the lip sat on its river to <b>0.0000 cm</b> with the ends 5.97 cm apart, and the fall registered no body.</p>
+
 <h2>Cost</h2>
 
 <p>Its own master and eight instances, which is the whole permutation count: <b>Foam</b>, <b>Refraction</b> and <b>Gradient</b>, and nothing else. There is no ripple field on a vertical sheet, no shoreline to foam against, and no bed under it to throw a caustic on, so none of those axes exist here.</p>

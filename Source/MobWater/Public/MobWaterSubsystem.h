@@ -148,6 +148,13 @@ public:
 	 */
 	class UMobWaterComponent* FindBodyAt(const FVector& Location) const;
 
+	/**
+	 * How many bodies of water are registered in this world.
+	 *
+	 * Registered, not placed. A waterfall is an actor drawing water and is deliberately absent from
+	 * this, because nothing floats on one.
+	 */
+	UFUNCTION(BlueprintPure, Category="Water")
 	int32 GetBodyCount() const { return Bodies.Num(); }
 
 	/** Every surface registered in this world, which is what a view of the world above has to leave out. */

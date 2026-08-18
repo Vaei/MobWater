@@ -1597,6 +1597,141 @@ def _shoal_rings(world, still_z):
     return [_shoal_ring(world, still_z, t) for t in SHOAL_STOPS]
 
 
+FALL_ORIGIN = (86000.0, -132000.0)
+
+# The river the fall comes out of, and the fall's own size. The river is deliberately larger than the
+# lip on every side: what is being asked is whether the top of the sheet finds the water above it,
+# and a lip hanging over the bank would be asking something else.
+FALL_RIVER = (900.0, 900.0)
+FALL_HALF_WIDTH = 400.0
+FALL_DROP = 600.0
+
+# Waves on it, because a lip joined to a flat pond is joined to a constant and would pass whether the
+# query were being read or not.
+FALL_AMPLITUDE = 1.4
+
+
+def check_fall_join():
+    """Places a waterfall over a river and asks whether its lip found the water.
+
+    Three things at once, and they fail differently. The lip offset has to be the same number the
+    query answers, or the top of the sheet is somewhere the river is not. The two ends have to be
+    read separately, or a swell crossing the lip holds the join in the middle and opens it at both
+    sides. And a fall must register no body of water: nothing floats on one, and a buoyancy query
+    that found a fall would answer with a surface standing on end.
+    """
+    world = unreal.EditorLevelLibrary.get_editor_world()
+    if world is None:
+        return ['no editor world to place a waterfall in.']
+
+    subsystem = unreal.MobWaterSubsystem.get(world)
+    if subsystem is None:
+        return ['no water subsystem in the editor world.']
+
+    before = subsystem.get_body_count()
+
+    failures = []
+    spawned = []
+
+    try:
+        river = unreal.EditorLevelLibrary.spawn_actor_from_class(
+            unreal.MobWaterPool, unreal.Vector(FALL_ORIGIN[0], FALL_ORIGIN[1], 0.0))
+        if river is None:
+            return ['could not place a river in the editor world.']
+
+        spawned.append(river)
+
+        water = river.get_editor_property('water')
+        water.set_editor_property('extent', unreal.Vector2D(FALL_RIVER[0], FALL_RIVER[1]))
+        water.set_editor_property('wave_amplitude', FALL_AMPLITUDE)
+        water.apply_surface()
+
+        still_z = river.get_actor_location().z
+
+        fall = unreal.EditorLevelLibrary.spawn_actor_from_class(
+            unreal.MobWaterFall, unreal.Vector(FALL_ORIGIN[0], FALL_ORIGIN[1], still_z))
+        if fall is None:
+            return ['could not place a waterfall in the editor world.']
+
+        spawned.append(fall)
+
+        lip = fall.get_editor_property('lip')
+        lip.clear_spline_points(False)
+        lip.add_spline_point(unreal.Vector(0.0, -FALL_HALF_WIDTH, 0.0),
+                             unreal.SplineCoordinateSpace.LOCAL, False)
+        lip.add_spline_point(unreal.Vector(0.0, FALL_HALF_WIDTH, 0.0),
+                             unreal.SplineCoordinateSpace.LOCAL, False)
+        lip.set_closed_loop(False, False)
+        lip.set_editor_property('drops', [FALL_DROP, FALL_DROP])
+        lip.update_spline()
+
+        fall.rebuild_surface()
+
+        sheet = fall.get_editor_property('fall')
+
+        # A fall is not a body of water, and this is the whole assertion: the registry has to be
+        # exactly one longer than it was, for the river.
+        after = subsystem.get_body_count()
+        if after != before + 1:
+            failures.append('placing a river and a waterfall registered {0} bodies of water rather '
+                            'than one. A fall must register none - nothing floats on one.'
+                            .format(after - before))
+        else:
+            _log('  ok  a waterfall registers no body of water')
+
+        # What the query answers at each end of the lip, which is what the join is meant to have
+        # found. Read here rather than inside the component, so the two are genuinely two readings.
+        ends = []
+        for side in (-FALL_HALF_WIDTH, FALL_HALF_WIDTH):
+            info = unreal.MobWaterStatics.get_water_info_at_location(
+                fall, unreal.Vector(FALL_ORIGIN[0], FALL_ORIGIN[1] + side, still_z))
+            ends.append(info.surface_z - still_z if info.valid else None)
+
+        if None in ends:
+            return ['the query found no water at the lip, so there was nothing for it to join to.']
+
+        sheet.update_lip_join()
+        joined = sheet.get_lip_offsets()
+
+        worst = max(abs(joined.x - ends[0]), abs(joined.y - ends[1]))
+        if worst > 0.01:
+            failures.append('the lip is {0:.4f}cm from the water it is joined to. The top of the '
+                            'sheet is not where the river is.'.format(worst))
+        else:
+            _log('  ok  the lip sits on the water feeding it, to {0:.4f} cm'.format(worst))
+
+        # The two ends have to be read separately. A lip four hundred either side of the middle is
+        # shorter than the swell crossing it, so the two differ - and one offset used twice would
+        # make them identical.
+        if abs(ends[0] - ends[1]) < 1e-3:
+            _log('  --  the swell happened to be level across the lip, so the two ends prove nothing '
+                 'this time')
+        elif abs(joined.x - joined.y) < 1e-3:
+            failures.append('both ends of the lip were given the same offset while the water under '
+                            'them differs by {0:.3f}cm, so the join is one reading rather than two.'
+                            .format(abs(ends[0] - ends[1])))
+        else:
+            _log('  ok  the ends of the lip differ by {0:.2f}cm, and the join follows both'
+                 .format(abs(joined.x - joined.y)))
+
+        # Opt in, exactly as the shoal is. A fall told not to follow the water must not move.
+        sheet.set_editor_property('join_to_water', False)
+        sheet.update_lip_join()
+
+        idle = sheet.get_lip_offsets()
+        if abs(idle.x) > 1e-4 or abs(idle.y) > 1e-4:
+            failures.append('a waterfall with the join turned off still moved its lip by '
+                            '({0:.4f}, {1:.4f}).'.format(idle.x, idle.y))
+        else:
+            _log('  ok  the join is opt in: turned off, the lip stays where it was placed')
+    finally:
+        for actor in spawned:
+            if actor:
+                unreal.EditorLevelLibrary.destroy_actor(actor)
+
+    return failures
+
+
 def check_shoal_query():
     """Places a reef in an ocean and asks the query what the waves over it are doing.
 
@@ -1727,6 +1862,12 @@ def run():
 
     _log(' a waterfall-s own data layout')
     failures += check_fall_indices()
+
+    _log(' a waterfall joined to the river above it')
+    if unreal:
+        failures += check_fall_join()
+    else:
+        _log('  --  skipped: needs the editor to place a waterfall.')
 
     _log(" Snell-s window against Snell-s law")
     if unreal:

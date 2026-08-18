@@ -69,6 +69,11 @@ void UMobWaterFallComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 	TickLipJoin();
 }
 
+void UMobWaterFallComponent::UpdateLipJoin()
+{
+	TickLipJoin();
+}
+
 void UMobWaterFallComponent::SetLip(UMobWaterFallSplineComponent* InLip)
 {
 	Lip = InLip;

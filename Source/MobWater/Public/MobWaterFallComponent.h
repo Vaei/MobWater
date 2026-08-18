@@ -258,8 +258,19 @@ public:
 	/** Where the water lands, and how wide the impact is. What the plunge disturbance is placed by. */
 	bool GetPlunge(FVector& OutLocation, float& OutRadius) const;
 
-	/** How far the sheet is from the water above it, at each end of the lip. Zero when it is joined. */
-	void GetLipOffsets(float& OutStart, float& OutEnd) const { OutStart = LipOffsets.X; OutEnd = LipOffsets.Y; }
+	/**
+	 * Reads the water above the lip and moves the top of the sheet onto it, now rather than on tick.
+	 *
+	 * What the tick calls. Exposed because a fall placed by script has no tick behind it yet, and
+	 * because a check that asserts the join has to be able to make it happen at a known instant
+	 * rather than wait for a frame that may never come in a commandlet.
+	 */
+	UFUNCTION(BlueprintCallable, Category="Fall")
+	void UpdateLipJoin();
+
+	/** How far the top of the sheet has moved to meet the water above it, at each end of the lip. */
+	UFUNCTION(BlueprintPure, Category="Fall")
+	FVector2D GetLipOffsets() const { return LipOffsets; }
 
 protected:
 	/** Which material variant this fall's settings ask for, as a mask of MobWaterFallVariant flags. */
