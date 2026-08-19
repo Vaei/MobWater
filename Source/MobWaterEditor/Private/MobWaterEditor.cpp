@@ -29,7 +29,6 @@
 #include "Selection.h"
 #include "ISourceControlModule.h"
 #include "SourceControlHelpers.h"
-#include "IPlacementModeModule.h"
 #include "LevelEditorViewport.h"
 #include "ScopedTransaction.h"
 #include "MobWaterEditorUserSettings.h"
@@ -86,7 +85,6 @@ namespace
 		};
 	}
 
-	const FName PlacementCategoryHandle(TEXT("MobWater"));
 }
 
 void FMobWaterEditorModule::StartupModule()
@@ -149,75 +147,6 @@ void FMobWaterEditorModule::StartupModule()
 
 	UToolMenus::RegisterStartupCallback(FSimpleMulticastDelegate::FDelegate::CreateRaw(
 		this, &FMobWaterEditorModule::RegisterMenus));
-
-	// The placement panel needs actor factories, and the editor has not instanced them while modules
-	// are still loading.
-	if (GEditor)
-	{
-		RegisterPlacement();
-	}
-	else
-	{
-		FCoreDelegates::GetOnPostEngineInit().AddRaw(this, &FMobWaterEditorModule::RegisterPlacement);
-	}
-}
-
-void FMobWaterEditorModule::RegisterPlacement()
-{
-	if (!GEditor || !IPlacementModeModule::IsAvailable())
-	{
-		return;
-	}
-
-	IPlacementModeModule& Placement = IPlacementModeModule::Get();
-
-	FPlacementCategoryInfo Category(
-		LOCTEXT("PlacementCategory", "Mob Water"),
-		FSlateIcon(FMobWaterEditorStyle::GetStyleSetName(), FMobWaterEditorStyle::GetMenuIconName()),
-		PlacementCategoryHandle,
-		TEXT("PMMobWater"),
-		22);
-
-	if (!Placement.RegisterPlacementCategory(Category))
-	{
-		return;
-	}
-
-	for (const FShapeEntry& Entry : ShapeEntries())
-	{
-		if (UActorFactory* Factory = GEditor->FindActorFactoryByClass(Entry.FactoryClass))
-		{
-			Placement.RegisterPlaceableItem(PlacementCategoryHandle, MakeShared<FPlaceableItem>(
-				Factory, FAssetData(AMobWaterPool::StaticClass())));
-		}
-	}
-
-	for (UClass* FactoryClass : { UMobWaterBodyFactory_Lake::StaticClass(), UMobWaterBodyFactory_River::StaticClass() })
-	{
-		if (UActorFactory* Factory = GEditor->FindActorFactoryByClass(FactoryClass))
-		{
-			Placement.RegisterPlaceableItem(PlacementCategoryHandle, MakeShared<FPlaceableItem>(
-				Factory, FAssetData(AMobWaterBody::StaticClass())));
-		}
-	}
-
-	if (UActorFactory* Factory = GEditor->FindActorFactoryByClass(UMobWaterOceanFactory::StaticClass()))
-	{
-		Placement.RegisterPlaceableItem(PlacementCategoryHandle, MakeShared<FPlaceableItem>(
-			Factory, FAssetData(AMobWaterOcean::StaticClass())));
-	}
-
-	if (UActorFactory* Factory = GEditor->FindActorFactoryByClass(UMobWaterFallFactory::StaticClass()))
-	{
-		Placement.RegisterPlaceableItem(PlacementCategoryHandle, MakeShared<FPlaceableItem>(
-			Factory, FAssetData(AMobWaterFall::StaticClass())));
-	}
-
-	if (UActorFactory* Factory = GEditor->FindActorFactoryByClass(UMobWaterExclusionFactory::StaticClass()))
-	{
-		Placement.RegisterPlaceableItem(PlacementCategoryHandle, MakeShared<FPlaceableItem>(
-			Factory, FAssetData(AMobWaterExclusion::StaticClass())));
-	}
 }
 
 FVector FMobWaterEditorModule::PlacementLocation()
@@ -293,12 +222,7 @@ void FMobWaterEditorModule::ShutdownModule()
 		PropertyModule->UnregisterCustomClassLayout(TEXT("MobWaterInteractionComponent"));
 	}
 
-	if (IPlacementModeModule::IsAvailable())
-	{
-		IPlacementModeModule::Get().UnregisterPlacementCategory(PlacementCategoryHandle);
-	}
-
-	if (MissingMaterialHandle.IsValid())
+		if (MissingMaterialHandle.IsValid())
 	{
 		OnMobWaterMaterialMissing.Remove(MissingMaterialHandle);
 		MissingMaterialHandle.Reset();

@@ -218,7 +218,6 @@ void UMobWaterFallFactory::PostSpawnActor(UObject* Asset, AActor* NewActor)
 		Lip->AddSplinePoint(FVector(0.f, Half, 0.f), ESplineCoordinateSpace::Local, false);
 		Lip->SetClosedLoop(false, false);
 
-		Lip->Drops = { 500.f, 500.f };
 		Lip->UpdateSpline();
 	}
 

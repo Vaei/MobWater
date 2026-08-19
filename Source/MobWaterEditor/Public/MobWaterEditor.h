@@ -59,7 +59,6 @@ private:
 	TSharedRef<SWidget> BuildMenu();
 
 	/** Adds a category to the Place Actors panel, one entry per shape. */
-	void RegisterPlacement();
 
 	/** Drops a body of water in front of the perspective viewport and selects it. */
 	static void PlaceWater(EMobWaterShape Shape);

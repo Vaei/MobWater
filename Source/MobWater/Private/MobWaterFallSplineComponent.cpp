@@ -13,15 +13,15 @@ UMobWaterFallSplineComponent::UMobWaterFallSplineComponent()
 
 float UMobWaterFallSplineComponent::GetDropAtDistance(float Distance) const
 {
-	if (Drops.Num() == 0)
+	if (DropOverrides.Num() == 0)
 	{
-		return 400.f;
+		return Drop;
 	}
 
 	const int32 PointCount = GetNumberOfSplinePoints();
 	if (PointCount < 2 || GetSplineLength() <= KINDA_SMALL_NUMBER)
 	{
-		return Drops[0];
+		return DropOverrides[0];
 	}
 
 	// Along the spline's own parameter rather than a straight fraction of its length. The two differ
@@ -32,8 +32,8 @@ float UMobWaterFallSplineComponent::GetDropAtDistance(float Distance) const
 	const int32 Lower = FMath::Clamp(FMath::FloorToInt(Key), 0, PointCount - 1);
 	const int32 Upper = FMath::Clamp(Lower + 1, 0, PointCount - 1);
 
-	const float A = Drops[FMath::Min(Lower, Drops.Num() - 1)];
-	const float B = Drops[FMath::Min(Upper, Drops.Num() - 1)];
+	const float A = DropOverrides[FMath::Min(Lower, DropOverrides.Num() - 1)];
+	const float B = DropOverrides[FMath::Min(Upper, DropOverrides.Num() - 1)];
 
 	return FMath::Lerp(A, B, FMath::Frac(Key));
 }
@@ -56,15 +56,15 @@ FVector UMobWaterFallSplineComponent::GetDownstreamAtDistance(float Distance) co
 
 float UMobWaterFallSplineComponent::GetMaxDrop() const
 {
-	if (Drops.Num() == 0)
+	if (DropOverrides.Num() == 0)
 	{
-		return 400.f;
+		return FMath::Max(Drop, 1.f);
 	}
 
 	float Deepest = 0.f;
-	for (const float Drop : Drops)
+	for (const float Override : DropOverrides)
 	{
-		Deepest = FMath::Max(Deepest, Drop);
+		Deepest = FMath::Max(Deepest, Override);
 	}
 
 	return FMath::Max(Deepest, 1.f);

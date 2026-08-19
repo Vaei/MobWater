@@ -138,7 +138,7 @@ Full walkthrough: [Install](https://vaei.github.io/MobWater/install.html).
 * [MobMaterials Plugin](https://github.com/Vaei/MobMaterials)
   * Landscape, surface and foliage masters for the same renderer, which is what this water sits in and wets
 * [MobLights Plugin](https://github.com/Vaei/MobLights)
-  * Local lights for a renderer that has none, and fog to put them in
+  * Local lights for the mobile forward rendering path, and fog to put them in
 * [MobFort Plugin](https://github.com/Vaei/MobFort)
   * Stylized unlit character masters, so the characters standing in this water read the same anywhere
 * [Gradient Tool Plugin](https://github.com/Vaei/GradientTool) - **required**

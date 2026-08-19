@@ -211,6 +211,21 @@ namespace MobWaterFoamRunUp
 	static constexpr float Range = 4.f;
 }
 
+/**
+ * What a course drawn out of its own plane is allowed to be.
+ *
+ * A river's surface is built along its spline while every query answers with the actor's own height,
+ * so a course that leaves that plane draws water somewhere other than the water it reports. Drift is
+ * how far apart the two are allowed to get, and Slope is the rise over the run at which the ribbon
+ * has stopped sloping and started standing up - the banks are held level as it is built, so past
+ * this the surface folds. Both are only ever read by the map check.
+ */
+namespace MobWaterCourse
+{
+	static constexpr double Drift = 25.0;
+	static constexpr double Slope = 0.577;
+}
+
 namespace MobWaterData
 {
 	/** Linear RGB of the water at its shallowest. Occupies 0, 1 and 2. */

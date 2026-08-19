@@ -31,6 +31,7 @@ public:
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 	virtual void PostEditMove(bool bFinished) override;
+	virtual void CheckForErrors() override;
 #endif
 	//~ End AActor Interface
 

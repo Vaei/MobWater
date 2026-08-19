@@ -53,6 +53,12 @@ class MOBWATER_API UMobWaterSpectrum : public UDataAsset
 	GENERATED_BODY()
 
 public:
+	/*
+	 * Soft, both of them. A spectrum is two atlases the size of the sea it describes, and a project
+	 * holding several - a calm one, a storm one, one per region - would otherwise carry all of them
+	 * in memory for as long as any of them is referenced. Loaded when a body actually asks.
+	 */
+
 	/**
 	 * Displacement and folding, one frame of the loop to a cell of the atlas.
 	 *
@@ -60,7 +66,7 @@ public:
 	 * VerticalScale. A is how hard the surface is folding there.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Spectrum")
-	TObjectPtr<UTexture2D> DisplacementTexture;
+	TSoftObjectPtr<UTexture2D> DisplacementTexture;
 
 	/**
 	 * The surface normal, in the same layout.
@@ -70,7 +76,7 @@ public:
 	 * a normal for something the size of a house.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Spectrum")
-	TObjectPtr<UTexture2D> NormalTexture;
+	TSoftObjectPtr<UTexture2D> NormalTexture;
 
 	/** How wide one tile of the field is in the world. The field repeats every one of these. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Spectrum", meta=(ClampMin="1.0", ForceUnits="cm"))

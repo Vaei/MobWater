@@ -238,11 +238,11 @@ public:
 	float LipFade = 0.25f;
 
 	/**
-	 * The most the lip is allowed to move, in world units.
+	 * How far the lip may move to meet the water, in world units.
 	 *
-	 * A guard rather than a look. If the fall is placed over the wrong body, or over an ocean whose
-	 * surface is nowhere near the lip, the offset is a large constant and the sheet would be dragged
-	 * off the cliff. Clamped, it is visibly wrong in one place instead.
+	 * Also what counts as the water feeding this fall: a surface further from the lip than this is
+	 * something else, most often the body at the bottom of the same cliff, and the sheet stays where
+	 * it was placed rather than being dragged towards it.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Join",
 		meta=(EditCondition="bJoinToWater", ClampMin="0.0", ForceUnits="cm"))

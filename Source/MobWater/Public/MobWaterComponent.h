@@ -540,5 +540,22 @@ protected:
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialInstanceDynamic> OverrideMaterial;
 
+	/**
+	 * Keeps the sea state's atlases in memory while this body is drawing them.
+	 *
+	 * The spectrum's textures are soft, so several sea states can sit in a project without all of
+	 * them being resident. A body holds the one it is actually using.
+	 */
+	TSharedPtr<struct FStreamableHandle> SpectrumHandle;
+
+	/** Which spectrum SpectrumHandle is holding, so a body settling on one does not request it twice. */
+	TWeakObjectPtr<const class UMobWaterSpectrum> LoadedSpectrum;
+
+	/** Asks for the sea state's atlases, and writes them on when they land. */
+	void RequestSpectrumTextures(const class UMobWaterSpectrum* Sea);
+
+	/** Writes the sea state's atlases onto the override once they are in memory. */
+	void ApplySpectrumTextures();
+
 	TWeakObjectPtr<class UMobWaterSplineComponent> ShoreSpline;
 };

@@ -191,6 +191,13 @@ void UMobWaterFallComponent::ApplySurface()
 	WriteFallData(MobWaterFallData::LipFade, LipFade);
 	WriteFallData(MobWaterFallData::RefractionStrength, bRefraction ? RefractionStrength : 0.f);
 
+	// Cleared here rather than left to the tick, which is about to be turned off and would never run
+	// to clear it. A join switched off has to put the lip back where the mesh has it.
+	if (!bJoinToWater)
+	{
+		LipOffsets = FVector2D::ZeroVector;
+	}
+
 	// Written here as well as on tick, so a fall dropped into a level and never played is not drawn
 	// with whatever the last one left behind.
 	WriteFallData2(MobWaterFallData::LipOffset, LipOffsets);
@@ -228,8 +235,13 @@ void UMobWaterFallComponent::TickLipJoin()
 			return 0.f;
 		}
 
-		return FMath::Clamp(Info.SurfaceZ - static_cast<float>(At.Z),
-			-MaxLipOffset, MaxLipOffset);
+		const float Offset = Info.SurfaceZ - static_cast<float>(At.Z);
+
+		// Refused rather than clamped when it is further than the lip may move. A query finds the
+		// nearest surface under the point when there is none over it, so a fall on a ledge answers
+		// with whatever is at the bottom of the cliff, and clamping that drags the sheet by the full
+		// limit for water it is not coming out of at all.
+		return FMath::Abs(Offset) <= MaxLipOffset ? Offset : 0.f;
 	};
 
 	const FVector Start = Course->GetLocationAtDistanceAlongSpline(0.f, ESplineCoordinateSpace::World);

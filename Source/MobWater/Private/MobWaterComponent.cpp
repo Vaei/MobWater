@@ -380,8 +380,13 @@ void UMobWaterComponent::ApplyTextureOverrides(UMaterialInterface* Shared)
 
 	if (bWantsSpectrum)
 	{
-		OverrideMaterial->SetTextureParameterValue(TEXT("SpectrumDisplacement"), Sea->DisplacementTexture);
-		OverrideMaterial->SetTextureParameterValue(TEXT("SpectrumNormal"), Sea->NormalTexture);
+		// Synchronous: the body is being told what to draw right now, and a sea that renders one
+		// frame without its displacement reads as the mesh being flat rather than as a load in
+		// flight. Preload the spectrum before the level is visible if that cost matters.
+		OverrideMaterial->SetTextureParameterValue(TEXT("SpectrumDisplacement"),
+			Sea->DisplacementTexture.LoadSynchronous());
+		OverrideMaterial->SetTextureParameterValue(TEXT("SpectrumNormal"),
+			Sea->NormalTexture.LoadSynchronous());
 
 		// Written beside the atlases rather than anywhere else, because they are one thing: the
 		// numbers say how to read those bytes, and a body holding one without the other reads a real
