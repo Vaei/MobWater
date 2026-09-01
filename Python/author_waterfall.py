@@ -17,6 +17,7 @@ Called from author_water.build_all, which owns the collection and the gradient t
 import unreal
 
 import mob_water_graph as g
+import water_hooks
 
 FALL_NAME = 'M_MobWaterFall'
 
@@ -584,13 +585,26 @@ def build_master_material(collection, gradient_asset, gradient_texture, gradient
     final_opacity = g.static_switch(mat, b_debug, g.const(mat, 1.0, 3, 80), '', opacity, '', 4, 48)
     final_emissive = g.static_switch(mat, b_debug, debug, '', emissive, '', 4, 64)
 
+    # --- hooks --------------------------------------------------------------
+    sig = {'Color': (final_color, ''), 'Opacity': (final_opacity, ''),
+           'Roughness': (out_roughness, ''), 'Normal': (out_normal, ''),
+           'Refraction': (out_refraction, ''), 'Emissive': (final_emissive, ''),
+           'Thin': (thin, ''), 'Sheet': (sheet, ''), 'Foam': (out_foam, ''),
+           'Travel': (flow, ''), 'Glint': (glint, '')}
+    sig = water_hooks.apply(mat, water_hooks.OUTPUT, sig, 5, 120)
+
+    # Added rather than replacing, so a project's own displacement stacks with the sheet's own.
+    hooked = water_hooks.apply(mat, water_hooks.WPO, sig, 5, 140).get('WorldPositionOffset')
+    if hooked is not None:
+        wpo = g.add(mat, wpo, '', hooked[0], hooked[1], 5, 142)
+
     g.link_property(mat, wpo, '', g.MP.MP_WORLD_POSITION_OFFSET)
-    g.link_property(mat, final_color, '', g.MP.MP_BASE_COLOR)
-    g.link_property(mat, final_opacity, '', g.MP.MP_OPACITY)
-    g.link_property(mat, out_roughness, '', g.MP.MP_ROUGHNESS)
-    g.link_property(mat, out_normal, '', g.MP.MP_NORMAL)
-    g.link_property(mat, out_refraction, '', g.MP.MP_REFRACTION)
-    g.link_property(mat, final_emissive, '', g.MP.MP_EMISSIVE_COLOR)
+    g.link_property(mat, sig['Color'][0], sig['Color'][1], g.MP.MP_BASE_COLOR)
+    g.link_property(mat, sig['Opacity'][0], sig['Opacity'][1], g.MP.MP_OPACITY)
+    g.link_property(mat, sig['Roughness'][0], sig['Roughness'][1], g.MP.MP_ROUGHNESS)
+    g.link_property(mat, sig['Normal'][0], sig['Normal'][1], g.MP.MP_NORMAL)
+    g.link_property(mat, sig['Refraction'][0], sig['Refraction'][1], g.MP.MP_REFRACTION)
+    g.link_property(mat, sig['Emissive'][0], sig['Emissive'][1], g.MP.MP_EMISSIVE_COLOR)
 
     g.spread(g.MEL.get_material_expressions(mat))
     g.MEL.recompile_material(mat)

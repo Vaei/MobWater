@@ -109,6 +109,13 @@ All of it costs one translucent plane, and runs anywhere - including the mobile 
 - **A disabled feature is not compiled.** Its texture samples and its maths leave the shader entirely
 - **Camera-relative throughout**, because a UE5 world position cannot be squared without losing it and the mobile pixel ALU is half precision besides
 
+### Your own maths, in a generated material
+
+- **Hooks.** A generated material cannot be hand-edited and keep the edit. Name a material function in Project Settings -> Mob Water, name a point, and the generator splices it back into the surface and the waterfall every time it authors
+- **Points:** `Output` and `WorldPositionOffset`
+- **Wired by name.** The function's inputs are matched against the signals live at that point and its outputs replace the ones they are named for. A signal it has no output for passes through untouched
+- **Gate it with a static bool** and an instance that leaves the switch off compiles none of it. Parameters declared inside the function surface on every instance, so a dynamic one can drive it
+
 ## Quick start
 
 ```

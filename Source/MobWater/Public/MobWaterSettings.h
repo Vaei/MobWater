@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "MobWaterHooks.h"
 #include "MobWaterTypes.h"
 #include "Engine/DeveloperSettings.h"
 #include "MobWaterSettings.generated.h"
@@ -18,7 +19,7 @@ class UStaticMesh;
  * Settings rather than constants, so a project can point a shape at its own material without
  * subclassing the component.
  */
-UCLASS(Config=Engine, DefaultConfig, meta=(DisplayName="Mob Water"))
+UCLASS(Config=Engine, DefaultConfig, BlueprintType, meta=(DisplayName="Mob Water"))
 class MOBWATER_API UMobWaterSettings : public UDeveloperSettings
 {
 	GENERATED_BODY()
@@ -223,4 +224,14 @@ public:
 
 	/** Variant is a mask of MobWaterUnderwaterVariant flags. */
 	static UMaterialInterface* GetUnderwaterMaterial(int32 Variant);
+
+	/**
+	 * Project material functions spliced into the masters as they are generated.
+	 *
+	 * The point of them is that a generated material cannot be hand-edited and keep the edit: the
+	 * next authoring run empties the graph and rebuilds it. Put the project's own maths in a
+	 * function, name it here, and every regenerate wires it back in.
+	 */
+	UPROPERTY(EditAnywhere, Config, Category="Hooks")
+	TArray<FMobWaterHook> Hooks;
 };

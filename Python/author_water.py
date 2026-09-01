@@ -27,6 +27,7 @@ import unreal
 import author_ripples
 import author_waterfall
 import mob_water_version
+import water_hooks
 import mob_water_graph as g
 import mob_water_spectrum
 import mob_water_textures
@@ -1557,13 +1558,29 @@ def build_master_material():
     final_opacity = g.static_switch(mat, b_debug, one, '', out_opacity, '', 3, 50)
     final_emissive = g.static_switch(mat, b_debug, debug, '', out_emissive, '', 3, 100)
 
+    # --- hooks --------------------------------------------------------------
+    # The terms a mid-chain hook would want are all still in scope here, so a project function can
+    # restyle the surface knowing how deep the water is and where the foam went.
+    sig = {'Color': (final_color, ''), 'Opacity': (final_opacity, ''),
+           'Roughness': (out_roughness, ''), 'Normal': (tangent_normal, ''),
+           'Refraction': (out_refraction, ''), 'Emissive': (final_emissive, ''),
+           'Foam': (foam, ''), 'Column': (column, ''), 'ShoreFade': (shore, ''),
+           'Caustics': (caustics, ''), 'Glint': (out_glint, ''),
+           'Reflection': (reflection, ''), 'Fold': (fold, '')}
+    sig = water_hooks.apply(mat, water_hooks.OUTPUT, sig, 4, 120)
+
+    # Added rather than replacing, so a project's own displacement stacks with the waves.
+    hooked = water_hooks.apply(mat, water_hooks.WPO, sig, 4, 140).get('WorldPositionOffset')
+    if hooked is not None:
+        wpo = g.add(mat, wpo, '', hooked[0], hooked[1], 4, 142)
+
     g.link_property(mat, wpo, '', g.MP.MP_WORLD_POSITION_OFFSET)
-    g.link_property(mat, final_color, '', g.MP.MP_BASE_COLOR)
-    g.link_property(mat, final_opacity, '', g.MP.MP_OPACITY)
-    g.link_property(mat, out_roughness, '', g.MP.MP_ROUGHNESS)
-    g.link_property(mat, tangent_normal, '', g.MP.MP_NORMAL)
-    g.link_property(mat, out_refraction, '', g.MP.MP_REFRACTION)
-    g.link_property(mat, final_emissive, '', g.MP.MP_EMISSIVE_COLOR)
+    g.link_property(mat, sig['Color'][0], sig['Color'][1], g.MP.MP_BASE_COLOR)
+    g.link_property(mat, sig['Opacity'][0], sig['Opacity'][1], g.MP.MP_OPACITY)
+    g.link_property(mat, sig['Roughness'][0], sig['Roughness'][1], g.MP.MP_ROUGHNESS)
+    g.link_property(mat, sig['Normal'][0], sig['Normal'][1], g.MP.MP_NORMAL)
+    g.link_property(mat, sig['Refraction'][0], sig['Refraction'][1], g.MP.MP_REFRACTION)
+    g.link_property(mat, sig['Emissive'][0], sig['Emissive'][1], g.MP.MP_EMISSIVE_COLOR)
 
     g.spread(g.MEL.get_material_expressions(mat))
     g.MEL.recompile_material(mat)
@@ -2961,6 +2978,8 @@ def build_all():
     # Reloaded here rather than left to the caller: mob_water_graph holds the reference, so a stamp
     # edited during a session would otherwise keep writing the version it was imported with.
     importlib.reload(mob_water_version)
+    importlib.reload(water_hooks)
+    water_hooks.read()
 
     g.log('Authoring water %s' % mob_water_version.plugin_version())
 
