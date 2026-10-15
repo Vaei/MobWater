@@ -7,6 +7,7 @@
 #include "MobWaterSpectrum.h"
 #include "MobWaterModule.h"
 #include "MobWaterUnderwaterComponent.h"
+#include "MobWaterWavePreset.h"
 #include "Materials/MaterialInterface.h"
 #include "Engine/StaticMesh.h"
 #include "UObject/UObjectIterator.h"

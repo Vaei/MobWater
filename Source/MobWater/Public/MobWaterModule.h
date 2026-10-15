@@ -8,8 +8,10 @@
 MOBWATER_API DECLARE_LOG_CATEGORY_EXTERN(LogMobWater, Log, All);
 
 #if WITH_EDITOR
+enum class EMobWaterShape : uint8;
+
 /** Raised when a shape has no material to render with. MobWaterEditor turns it into a notification. */
-DECLARE_MULTICAST_DELEGATE_OneParam(FMobWaterMissingMaterial, enum class EMobWaterShape /* Shape */);
+DECLARE_MULTICAST_DELEGATE_OneParam(FMobWaterMissingMaterial, EMobWaterShape /* Shape */);
 extern MOBWATER_API FMobWaterMissingMaterial OnMobWaterMaterialMissing;
 #endif
 

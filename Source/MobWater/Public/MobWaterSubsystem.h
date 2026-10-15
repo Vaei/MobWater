@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "MobWaterDeterminism.h"
 #include "MobWaterExclusionComponent.h"
 #include "MobWaterTimeSource.h"
 #include "MobWaterWaves.h"
@@ -418,5 +419,5 @@ protected:
 	uint64 TickCount = 0;
 
 	/** Built only when mob.Water.Determinism asks for it, which is never in a shipped game. */
-	TUniquePtr<struct FMobWaterDeterminism> Determinism;
+	TUniquePtr<FMobWaterDeterminism> Determinism;
 };
