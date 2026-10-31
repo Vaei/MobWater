@@ -328,7 +328,7 @@ return Out;
 """
 
 _CODE_SPECTRUM_NORMAL = """
-return MobWaterSpectrumNormal(N0, N1, Blend, Scale.z);
+return MobWaterSpectrumNormal(N0, N1, Blend, Scale.z * MobWaterSpectrumDetail(MobWaterPixelFootprint(Depth, ToCamera), Params));
 """
 
 _CODE_SPECTRUM_COMBINE_NORMAL = """
@@ -438,7 +438,19 @@ UVSecond = UVB;
 return UVA;
 """
 
+# Pixel Normal Offset refraction shifts everything already drawn behind the surface, the sky and the
+# clouds included, by the surface's normal. Over deep water what is behind is far away, and past a
+# short distance the shift only shuffles it pixel by pixel.
+_CODE_REFRACTION_FADE = """
+// Whole to 30 m, gone by 150 m.
+return Strength * saturate((15000.0f - PixelDepth) / 12000.0f);
+"""
+
 _CODE_COMBINE_NORMAL = """
+const float Footprint = MobWaterPixelFootprint(Depth, ToCamera);
+DetailA.xy *= MobWaterFootprintFade(Footprint, ScaleA);
+DetailB.xy *= MobWaterFootprintFade(Footprint, ScaleB);
+DetailC.xy *= MobWaterFootprintFade(Footprint, ScaleMacro);
 float3 Detail = MobWaterBlendNormals(DetailA, DetailB);
 
 // The macro layer is the slow swell across a whole body: too large to read as texture, too small to
@@ -701,12 +713,15 @@ def _spectrum_nodes(mat, collection, sample_xy, time, x, y):
     g.link(scale, '', displacement, 'Scale')
 
     normal = g.custom(mat, _CODE_SPECTRUM_NORMAL, g.CMOT.CMOT_FLOAT3,
-                      ['N0', 'N1', 'Blend', 'Scale'], [], x + 3, y + 6,
+                      ['N0', 'N1', 'Blend', 'Scale', 'Params', 'Depth', 'ToCamera'], [], x + 3, y + 6,
                       'The baked slope, blended and rebuilt into a normal.', includes=INCLUDES)
     g.link(normal_taps[0], '', normal, 'N0')
     g.link(normal_taps[1], '', normal, 'N1')
     g.link(uv, 'SpectrumBlend', normal, 'Blend')
     g.link(scale, '', normal, 'Scale')
+    g.link(params, '', normal, 'Params')
+    g.link(g.expr(mat, unreal.MaterialExpressionPixelDepth, x + 2, y + 9), '', normal, 'Depth')
+    g.link(g.expr(mat, unreal.MaterialExpressionCameraVectorWS, x + 2, y + 10), '', normal, 'ToCamera')
 
     return displacement, normal
 
@@ -1044,7 +1059,7 @@ def build_master_material():
 
     combined_normal = g.custom(mat, _CODE_COMBINE_NORMAL, g.CMOT.CMOT_FLOAT3,
                                ['WaveNormal', 'DetailA', 'DetailB', 'DetailC', 'MacroStrength',
-                                'Strength'], [], -1, 58,
+                                'Strength', 'ScaleA', 'ScaleB', 'ScaleMacro', 'Depth', 'ToCamera'], [], -1, 58,
                                'The waves, the detail and the swell, without any of them flattening '
                                'the others.', includes=INCLUDES)
     g.link(wave_normal, '', combined_normal, 'WaveNormal')
@@ -1053,6 +1068,11 @@ def build_master_material():
     g.link(detail_macro, '', combined_normal, 'DetailC')
     g.link(macro_strength, '', combined_normal, 'MacroStrength')
     g.link(detail_strength, '', combined_normal, 'Strength')
+    g.link(g.const(mat, DETAIL_SCALE_A, -2, 66), '', combined_normal, 'ScaleA')
+    g.link(g.const(mat, DETAIL_SCALE_B, -2, 67), '', combined_normal, 'ScaleB')
+    g.link(g.const(mat, DETAIL_SCALE_MACRO, -2, 68), '', combined_normal, 'ScaleMacro')
+    g.link(g.expr(mat, unreal.MaterialExpressionPixelDepth, -2, 69), '', combined_normal, 'Depth')
+    g.link(g.expr(mat, unreal.MaterialExpressionCameraVectorWS, -2, 70), '', combined_normal, 'ToCamera')
 
     b_detail = g.static_bool(mat, 'bDetailNormals', True, 'Surface', -1, 64, 20,
                              'The two scrolling detail normals. Off, the surface has only the shape '
@@ -1384,8 +1404,14 @@ def build_master_material():
     # In Pixel Normal Offset mode the refraction input scales the offset, and 1.0 means none while
     # 2.0 means a scale of one. It is not an index of refraction despite the pin's name, and feeding
     # water's 1.33 into it would ask for a third of the intended strength.
+    faded_strength = g.custom(mat, _CODE_REFRACTION_FADE, g.CMOT.CMOT_FLOAT1,
+                              ['Strength', 'PixelDepth'], [], -2, 75,
+                              'Refraction gone by 150 m, past which it only shuffles what is behind.',
+                              includes=INCLUDES)
+    g.link(refraction_strength, '', faded_strength, 'Strength')
+    g.link(pixel_depth, '', faded_strength, 'PixelDepth')
     water_offset = g.lerp(mat, g.const(mat, 1.0, -2, 76), '', g.const(mat, 2.0, -2, 77), '',
-                          refraction_strength, '', -1, 76)
+                          faded_strength, '', -1, 76)
 
     b_refraction = g.static_bool(mat, 'bRefraction', False, 'Refraction', -1, 78, 22,
                                  'Bends what is behind the surface. Needs scene colour in the '

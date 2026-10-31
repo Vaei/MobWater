@@ -392,6 +392,34 @@ float MobWaterCaustics(float LayerA, float LayerB, float Column, float FadeDepth
 }
 
 /**
+ * How far across the water one pixel reaches, in world units, along the direction it is stretched.
+ *
+ * From the depth and the projection rather than from derivatives, which read zero over parts of the
+ * surface in the translucent pass. ToCamera is the material's camera vector; a grazing view stretches
+ * the pixel by one over its height, capped at twenty.
+ */
+float MobWaterPixelFootprint(float Depth, float3 ToCamera)
+{
+	// ClipToView[1][1] is the tangent of half the vertical field of view.
+	const float PixelAngle = 2.0f * View.ClipToView[1][1] * View.ViewSizeAndInvSize.w;
+	return Depth * PixelAngle / max(abs(ToCamera.z), 0.05f);
+}
+
+/**
+ * How much of a normal that repeats every Period world units a pixel Footprint wide can show, 0 to 1.
+ *
+ * Mips average the texture but not the lighting: a pixel spanning several texels still lands on one
+ * slope or another, and that reads as grain. Whole while a pixel covers half a texel of the 256 across
+ * the detail texture, gone by two. Over the log of the footprint, because the footprint grows with the
+ * square of distance at a grazing angle and a linear fade would draw a line across the sea.
+ */
+float MobWaterFootprintFade(float Footprint, float Period)
+{
+	const float Texels = Footprint * 256.0f / max(Period, 1.0f);
+	return saturate(1.0f - log2(max(Texels * 2.0f, 1.0f)) / 2.0f);
+}
+
+/**
  * Two normals combined, without either flattening the other.
  *
  * The whiteout blend: the tangents add and the up components multiply. Averaging two normals instead

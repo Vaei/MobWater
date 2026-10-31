@@ -87,6 +87,19 @@ float3 MobWaterSpectrumDisplacement(float4 Sample0, float4 Sample1, float Blend,
 }
 
 /**
+ * How much of the baked slope a pixel can show, 0 to 1.
+ *
+ * The atlas is read at mip zero, so a pixel spanning many texels reads one of them at random and the
+ * sea sparkles in a moire from altitude. Faded over the log of the footprint from one texel to four,
+ * where a pixel gets the flat average it would see.
+ */
+float MobWaterSpectrumDetail(float Footprint, float4 Params)
+{
+	const float Texel = max(Params.x, 1.0f) / max(Params.z, 1.0f);
+	return saturate(1.0f - log2(max(Footprint / Texel, 1.0f)) / 2.0f);
+}
+
+/**
  * Two reads of the normal atlas, blended and decoded.
  *
  * Only the slope is stored. An ocean's surface never faces away from the sky, so the vertical
