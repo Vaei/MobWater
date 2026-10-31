@@ -134,8 +134,8 @@ def _log(msg):
 
 def _source_dir():
     """Where the atlases and the table are written before import."""
-    plugin = unreal.Paths.project_plugins_dir() + 'Visuals/MobWater/Intermediate/SpectrumSource'
-    directory = unreal.Paths.convert_relative_path_to_full(plugin)
+    # Beside this script, wherever the plugin lives.
+    directory = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'Intermediate', 'SpectrumSource')
     if not os.path.isdir(directory):
         os.makedirs(directory)
     return directory

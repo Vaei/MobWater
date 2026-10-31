@@ -59,8 +59,8 @@ def _log(msg):
 
 def _source_dir():
     """Where the PNGs are written before import. Intermediate, because they are not the asset."""
-    plugin = unreal.Paths.project_plugins_dir() + 'Visuals/MobWater/Intermediate/TextureSource'
-    directory = unreal.Paths.convert_relative_path_to_full(plugin)
+    # Beside this script, wherever the plugin lives.
+    directory = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'Intermediate', 'TextureSource')
     if not os.path.isdir(directory):
         os.makedirs(directory)
     return directory
