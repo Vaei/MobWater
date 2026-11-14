@@ -104,6 +104,22 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Exclusion")
 	bool bBlocksSubmersion = true;
 
+	/**
+	 * Gives the volume a floor and a ceiling: a dry room under the sea rather than a hole in it.
+	 *
+	 * Queries between them find no water; everywhere else is untouched. The drawn surface is never
+	 * carved, because the room is somewhere below it.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Exclusion")
+	bool bHeightLimited = false;
+
+	/** Floor and ceiling of a height-limited volume, relative to the component. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Exclusion", meta=(ForceUnits="cm", EditCondition="bHeightLimited"))
+	FVector2D HeightRange = FVector2D(0.0, 300.0);
+
+	/** Whether the drawn surface cuts this volume's footprint. */
+	bool CarvesSurface() const { return !bHeightLimited; }
+
 	/** How much water this volume removes at a world point, 0 outside and 1 fully excluded. */
 	float GetExclusionAt(const FVector& Location) const;
 

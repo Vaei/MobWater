@@ -487,6 +487,12 @@ float UMobWaterExclusionComponent::GetExclusionAt(const FVector& Location) const
 			HalfY - FMath::Abs(static_cast<float>(Local.Y)));
 	}
 
+	if (bHeightLimited)
+	{
+		const float Z = static_cast<float>(Location.Z - Centre.Z);
+		Inside = FMath::Min(Inside, FMath::Min(Z - static_cast<float>(HeightRange.X), static_cast<float>(HeightRange.Y) - Z));
+	}
+
 	if (Inside <= 0.f)
 	{
 		return 0.f;

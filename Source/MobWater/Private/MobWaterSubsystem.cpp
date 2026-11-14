@@ -745,7 +745,7 @@ void UMobWaterSubsystem::PublishExclusions()
 			// over itself, and dropping it here would leave the only volume that mattered unpublished.
 			const bool bDoesSomething = Exclusion->Strength > 0.f || Exclusion->ShoalDistance > 0.f;
 
-			if (Exclusion->IsActive() && bDoesSomething && !Exclusion->IsMesh())
+			if (Exclusion->IsActive() && bDoesSomething && !Exclusion->IsMesh() && Exclusion->CarvesSurface())
 			{
 				Live.Add(Exclusion);
 			}
@@ -940,7 +940,7 @@ int32 UMobWaterSubsystem::PublishMeshExclusions(UMaterialInstanceDynamic* Materi
 	for (const TWeakObjectPtr<UMobWaterExclusionComponent>& Entry : Exclusions)
 	{
 		UMobWaterExclusionComponent* Exclusion = Entry.Get();
-		if (!Exclusion || !Exclusion->IsActive() || Exclusion->Strength <= 0.f || !Exclusion->IsMesh())
+		if (!Exclusion || !Exclusion->IsActive() || Exclusion->Strength <= 0.f || !Exclusion->IsMesh() || !Exclusion->CarvesSurface())
 		{
 			continue;
 		}
